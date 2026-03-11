@@ -127,6 +127,25 @@ var versionCmd = &cobra.Command{
 	},
 }
 
+var initCmd = &cobra.Command{
+	Use:   "init <case-name>",
+	Short: "创建CASE目录模板",
+	Long: `创建一个标准化的CASE目录结构，包含配置文件和脚本模板。
+
+示例:
+  kb-runner init my_check                  # 创建默认Bash CASE
+  kb-runner init my_check --lang python    # 创建Python CASE
+  kb-runner init my_check --output ./cases # 指定输出目录`,
+	Args: cobra.ExactArgs(1),
+	RunE: initCase,
+}
+
+var (
+	initLanguage  string
+	initOutput   string
+	initTemplate string
+)
+
 func init() {
 	cobra.OnInitialize(initConfig)
 
@@ -160,7 +179,12 @@ func init() {
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(scenarioCmd)
 	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(versionCmd)
+
+	initCmd.Flags().StringVarP(&initLanguage, "language", "l", "bash", "脚本语言 (bash/python)")
+	initCmd.Flags().StringVarP(&initOutput, "output", "o", "./cases", "输出目录")
+	initCmd.Flags().StringVar(&initTemplate, "template", "default", "模板类型")
 }
 
 func initConfig() {
@@ -677,6 +701,152 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+func initCase(cmd *cobra.Command, args []string) error {
+	caseName := args[0]
+
+	if initLanguage != "bash" && initLanguage != "python" {
+		return fmt.Errorf("不支持的脚本语言: %s, 请使用 bash 或 python", initLanguage)
+	}
+
+	caseDir := filepath.Join(initOutput, caseName)
+	if _, err := os.Stat(caseDir); err == nil {
+		return fmt.Errorf("目录已存在: %s", caseDir)
+	}
+
+	if err := os.MkdirAll(caseDir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %w", err)
+	}
+
+	caseYAML := fmt.Sprintf(`name: %s
+language: %s
+category: default
+tags:
+  - default
+description: TODO: 在这里填写CASE的描述信息
+timeout: 300s
+weight: 1.0
+params:
+  key: value
+`, caseName, initLanguage)
+
+	yamlPath := filepath.Join(caseDir, "case.yaml")
+	if err := os.WriteFile(yamlPath, []byte(caseYAML), 0644); err != nil {
+		return fmt.Errorf("创建配置文件失败: %w", err)
+	}
+
+	var scriptContent string
+	if initLanguage == "bash" {
+		scriptContent = `#!/bin/bash
+# CASE: CASE_NAME
+# 描述: TODO: 在这里填写CASE的描述信息
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+source "$PROJECT_ROOT/scripts/bash/api.sh"
+
+kb_init
+
+# ============================================
+# 在这里编写你的检查逻辑
+# ============================================
+
+# 示例步骤1: 检查系统环境
+step_start "check_environment"
+if [ -f "/etc/os-release" ]; then
+    result "os" "linux"
+    step_success "系统环境检查通过"
+else
+    step_warning "无法确定操作系统类型"
+fi
+
+# 示例步骤2: 执行检查
+step_start "execute_check"
+# TODO: 在这里添加你的检查逻辑
+result "status" "ok"
+step_success "检查执行完成"
+
+# ============================================
+# 保存结果
+# ============================================
+
+kb_save
+
+echo "CASE执行完成"
+`
+		scriptContent = strings.ReplaceAll(scriptContent, "CASE_NAME", caseName)
+		scriptPath := filepath.Join(caseDir, "run.sh")
+		if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+			return fmt.Errorf("创建脚本文件失败: %w", err)
+		}
+	} else {
+		scriptContent = `#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# CASE: CASE_NAME
+# 描述: TODO: 在这里填写CASE的描述信息
+
+import sys
+import os
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
+sys.path.insert(0, os.path.join(PROJECT_ROOT, 'scripts', 'python'))
+
+from kb_api import kb
+
+# ============================================
+# 在这里编写你的检查逻辑
+# ============================================
+
+# 示例步骤1: 检查系统环境
+kb.step_start("check_environment")
+try:
+    import platform
+    result = {"os": platform.system()}
+    kb.result("os", result["os"])
+    kb.step_success("系统环境检查通过")
+except Exception as e:
+    kb.step_warning(f"无法确定操作系统类型: {e}")
+
+# 示例步骤2: 执行检查
+kb.step_start("execute_check")
+# TODO: 在这里添加你的检查逻辑
+try:
+    kb.result("status", "ok")
+    kb.step_success("检查执行完成")
+except Exception as e:
+    kb.step_failure(f"检查执行失败: {e}")
+
+# ============================================
+# 保存结果
+# ============================================
+
+kb.save()
+
+print("CASE执行完成")
+`
+		scriptContent = strings.ReplaceAll(scriptContent, "CASE_NAME", caseName)
+		scriptPath := filepath.Join(caseDir, "run.py")
+		if err := os.WriteFile(scriptPath, []byte(scriptContent), 0644); err != nil {
+			return fmt.Errorf("创建脚本文件失败: %w", err)
+		}
+	}
+
+	fmt.Printf("CASE创建成功: %s\n", caseDir)
+	fmt.Printf("  - 配置文件: %s\n", yamlPath)
+	var ext string
+	if initLanguage == "bash" {
+		ext = "sh"
+	} else {
+		ext = "py"
+	}
+	fmt.Printf("  - 脚本文件: %s\n", filepath.Join(caseDir, "run."+ext))
+	fmt.Println("\n请编辑配置文件和脚本，然后就可以运行了:")
+	fmt.Printf("  kb-runner run -s %s\n", filepath.Join(caseDir, "run."+ext))
+
+	return nil
 }
 
 func generateID() string {
