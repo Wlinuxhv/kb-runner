@@ -1,0 +1,44 @@
+cases:
+  - name: security_check
+    path: ./scripts/bash/security_check.sh
+    language: bash
+    category: security
+    tags:
+      - critical
+      - daily
+    description: 系统安全检查，包括权限、用户、配置等
+    params:
+      target: production
+    timeout: 300s
+    weight: 2.0
+
+  - name: performance_check
+    path: ./scripts/python/performance_check.py
+    language: python
+    category: performance
+    tags:
+      - daily
+      - monitoring
+    description: 系统性能检查，包括CPU、内存、磁盘等
+    params:
+      env: prod
+    timeout: 600s
+    weight: 1.5
+
+  - name: network_check
+    path: ./scripts/bash/network_check.sh
+    language: bash
+    category: network
+    tags:
+      - connectivity
+    description: 网络连通性检查
+    timeout: 120s
+    weight: 1.0
+
+categories:
+  - name: security
+    description: 安全相关检查
+  - name: performance
+    description: 性能相关检查
+  - name: network
+    description: 网络相关检查

@@ -1,0 +1,50 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+  shutdown_timeout: 10s
+
+execution:
+  timeout: 300s
+  max_parallel: 10
+  work_dir: "./workspace"
+  temp_dir: "./temp"
+  env_vars:
+    KB_API_PATH: "./scripts"
+
+scripts:
+  directory: "./scripts"
+  allowed_languages:
+    - bash
+    - python
+  max_size: "10MB"
+
+logging:
+  level: "info"
+  format: "json"
+  output:
+    type: "file"
+    path: "./logs/kb-runner.log"
+    max_size: "100MB"
+    max_backups: 10
+    max_age: 30
+
+weights:
+  default_script_weight: 1.0
+  default_step_weight: 1.0
+  scripts:
+    security_check:
+      weight: 2.0
+      steps:
+        check_permissions: 1.5
+        check_users: 1.0
+    performance_check:
+      weight: 1.5
+
+backend:
+  url: "http://backend:8081/api/v1"
+  timeout: 30s
+  retry:
+    max_attempts: 3
+    wait_time: 1s

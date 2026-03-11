@@ -1,0 +1,33 @@
+scenarios:
+  - name: daily_check
+    description: 日常巡检场景，包含基础检查项
+    cases:
+      - security_check
+      - performance_check
+      - network_check
+    execution:
+      parallel: true
+      max_parallel: 3
+      timeout: 900s
+      fail_fast: false
+
+  - name: security_audit
+    description: 安全审计场景，包含所有安全相关检查
+    cases:
+      - security_check
+    execution:
+      parallel: false
+      timeout: 1800s
+      fail_fast: false
+
+  - name: pre_deploy
+    description: 部署前检查场景
+    cases:
+      - security_check
+      - performance_check
+      - network_check
+    execution:
+      parallel: true
+      max_parallel: 2
+      timeout: 600s
+      fail_fast: true
