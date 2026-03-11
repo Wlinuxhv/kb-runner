@@ -1,0 +1,24 @@
+@startuml
+actor Client as 客户端
+component ExecutionEngine as 执行引擎
+component ScriptAdapter as 脚本适配器
+component Script as 脚本
+component APIModule as API模块
+component LogSystem as 日志系统
+component ResultProcessor as 结果处理器
+component MatrixGenerator as 矩阵生成器
+component Backend as 后端系统
+component ConfigManager as 配置管理
+
+客户端 --> 执行引擎 : 提交脚本
+执行引擎 --> 脚本适配器 : 选择适配器
+脚本适配器 --> 脚本 : 执行脚本
+脚本 --> API模块 : 调用API
+API模块 --> 日志系统 : 记录日志
+API模块 --> 结果处理器 : 记录结果
+执行引擎 --> 脚本 : 获取执行状态
+结果处理器 --> 矩阵生成器 : 处理结果
+矩阵生成器 --> 后端系统 : 导入后端
+配置管理 --> 执行引擎 : 提供配置
+配置管理 --> 结果处理器 : 提供权重
+@enduml
