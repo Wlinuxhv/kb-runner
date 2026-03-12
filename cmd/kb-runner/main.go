@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"kb-runnerx/internal/adapter"
+	"kb-runnerx/internal/api"
 	"kb-runnerx/internal/cases"
 	"kb-runnerx/internal/executor"
 	"kb-runnerx/internal/processor"
@@ -39,6 +40,8 @@ var (
 	category     string
 	tags         []string
 	searchTerm   string
+	serveHost    string
+	servePort    int
 )
 
 var rootCmd = &cobra.Command{
@@ -140,6 +143,18 @@ var initCmd = &cobra.Command{
 	RunE: initCase,
 }
 
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "启动Web服务",
+	Long: `启动内嵌的Web服务，提供图形化界面和RESTful API。
+
+示例:
+  kb-runner serve                    # 默认端口8080
+  kb-runner serve --port 9090        # 指定端口
+  kb-runner serve --host 127.0.0.1   # 指定监听地址`,
+	RunE: runServe,
+}
+
 var (
 	initLanguage  string
 	initOutput   string
@@ -181,10 +196,14 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(serveCmd)
 
 	initCmd.Flags().StringVarP(&initLanguage, "language", "l", "bash", "脚本语言 (bash/python)")
 	initCmd.Flags().StringVarP(&initOutput, "output", "o", "./cases", "输出目录")
 	initCmd.Flags().StringVar(&initTemplate, "template", "default", "模板类型")
+
+	serveCmd.Flags().StringVarP(&serveHost, "host", "H", "0.0.0.0", "监听地址")
+	serveCmd.Flags().IntVarP(&servePort, "port", "p", 8080, "监听端口")
 }
 
 func initConfig() {
@@ -864,6 +883,54 @@ print("CASE执行完成")
 	fmt.Printf("  kb-runner run -s %s\n", filepath.Join(caseDir, "run."+ext))
 
 	return nil
+}
+
+func runServe(cmd *cobra.Command, args []string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	log, err := createLogger(cfg)
+	if err != nil {
+		return err
+	}
+
+	if err := cfg.EnsureDirectories(); err != nil {
+		return err
+	}
+
+	srv := api.NewServer(cfg, log)
+
+	registerAdapters(cfg, srv.Engine())
+
+	if err := loadCases(cfg, srv.CaseManager()); err != nil {
+		log.Warn("Failed to load cases", "error", err)
+	}
+
+	if err := loadScenarios(cfg, srv.ScenarioManager()); err != nil {
+		log.Warn("Failed to load scenarios", "error", err)
+	}
+
+	addr := fmt.Sprintf("%s:%d", serveHost, servePort)
+	fmt.Printf("Starting KB Runner Web Server...\n")
+	fmt.Printf("  Address: http://%s\n", addr)
+	fmt.Printf("  API:     http://%s/api/v1\n", addr)
+	fmt.Printf("  Docs:    http://%s/api/v1/docs\n", addr)
+	fmt.Println("\nPress Ctrl+C to stop")
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		fmt.Println("\nShutting down...")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
+	}()
+
+	return srv.Start(addr)
 }
 
 func generateID() string {

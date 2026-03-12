@@ -16,6 +16,7 @@ type Config struct {
 	Logging   LoggingConfig   `mapstructure:"logging"`
 	Weights   WeightsConfig   `mapstructure:"weights"`
 	Backend   BackendConfig   `mapstructure:"backend"`
+	History   HistoryConfig   `mapstructure:"history"`
 }
 
 type ServerConfig struct {
@@ -76,6 +77,13 @@ type RetryConfig struct {
 	WaitTime    time.Duration `mapstructure:"wait_time"`
 }
 
+type HistoryConfig struct {
+	Enabled          bool    `mapstructure:"enabled"`
+	MaxRecords       int     `mapstructure:"max_records"`
+	AutoCleanup      bool    `mapstructure:"auto_cleanup"`
+	CleanupThreshold float64 `mapstructure:"cleanup_threshold"`
+}
+
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -120,6 +128,12 @@ func DefaultConfig() *Config {
 				MaxAttempts: 3,
 				WaitTime:    1 * time.Second,
 			},
+		},
+		History: HistoryConfig{
+			Enabled:          true,
+			MaxRecords:       4294967296,
+			AutoCleanup:      true,
+			CleanupThreshold: 0.9,
 		},
 	}
 }
