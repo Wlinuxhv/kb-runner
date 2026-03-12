@@ -46,3 +46,9 @@ configs/config.yaml
 # Test results
 coverage.out
 *.test
+
+# Runtime generated directories
+workspace/
+history/
+test_init_dir/
+test_output/
