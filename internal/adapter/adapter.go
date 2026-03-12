@@ -139,13 +139,24 @@ func (a *BashAdapter) Execute(ctx context.Context, task *Task) (*ExecutionResult
 		Steps:     make([]*result.StepResult, 0),
 	}
 
+	if err := os.MkdirAll(a.tempDir, 0755); err != nil {
+		execResult.Status = result.ScriptStatusFailure
+		execResult.ErrorMessage = fmt.Sprintf("failed to create temp dir: %v", err)
+		return execResult, nil
+	}
+
 	tempResultFile := filepath.Join(a.tempDir, fmt.Sprintf("%s_result.json", task.ID))
 	tempLogFile := filepath.Join(a.tempDir, fmt.Sprintf("%s.log", task.ID))
 
-	env := a.buildEnv(task, tempResultFile, tempLogFile)
+	absResultFile, _ := filepath.Abs(tempResultFile)
+	absLogFile, _ := filepath.Abs(tempLogFile)
+
+	env := a.buildEnv(task, absResultFile, absLogFile)
+
+	scriptPath, _ := filepath.Abs(task.ScriptPath)
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", 
-		fmt.Sprintf("source %s && source %s", a.apiScriptPath, task.ScriptPath))
+		fmt.Sprintf("source %s && source %s", a.apiScriptPath, scriptPath))
 	cmd.Dir = task.WorkDir
 	cmd.Env = append(os.Environ(), env...)
 
@@ -249,17 +260,28 @@ func (a *PythonAdapter) Execute(ctx context.Context, task *Task) (*ExecutionResu
 		Steps:     make([]*result.StepResult, 0),
 	}
 
+	if err := os.MkdirAll(a.tempDir, 0755); err != nil {
+		execResult.Status = result.ScriptStatusFailure
+		execResult.ErrorMessage = fmt.Sprintf("failed to create temp dir: %v", err)
+		return execResult, nil
+	}
+
 	tempResultFile := filepath.Join(a.tempDir, fmt.Sprintf("%s_result.json", task.ID))
 	tempLogFile := filepath.Join(a.tempDir, fmt.Sprintf("%s.log", task.ID))
 
-	env := a.buildEnv(task, tempResultFile, tempLogFile)
+	absResultFile, _ := filepath.Abs(tempResultFile)
+	absLogFile, _ := filepath.Abs(tempLogFile)
+
+	env := a.buildEnv(task, absResultFile, absLogFile)
+
+	scriptPath, _ := filepath.Abs(task.ScriptPath)
 
 	scriptContent := fmt.Sprintf(`
 import sys
 sys.path.insert(0, '%s')
 from kb_api import *
 exec(open('%s').read())
-`, a.apiScriptPath, task.ScriptPath)
+`, a.apiScriptPath, scriptPath)
 
 	cmd := exec.CommandContext(ctx, a.pythonPath, "-c", scriptContent)
 	cmd.Dir = task.WorkDir

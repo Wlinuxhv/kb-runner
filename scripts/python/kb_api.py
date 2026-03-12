@@ -295,3 +295,45 @@ class KBAPI:
 
 
 kb = KBAPI()
+
+def kb_init():
+    pass
+
+def kb_save():
+    kb.save()
+
+def step_start(name: str) -> None:
+    kb.step_start(name)
+
+def step_success(message: str = "执行成功") -> None:
+    kb.step_success(message)
+
+def step_failure(message: str = "执行失败") -> None:
+    kb.step_failure(message)
+
+def step_warning(message: str = "执行警告") -> None:
+    kb.step_warning(message)
+
+def step_skip(message: str = "跳过执行") -> None:
+    kb.step_skip(message)
+
+def step_output(output: str) -> None:
+    kb.step_output(output)
+
+def result(key: str, value: Any) -> None:
+    kb.result_add(key, value)
+
+def log_debug(message: str) -> None:
+    kb.log_debug(message)
+
+def log_info(message: str) -> None:
+    kb.log_info(message)
+
+def log_warn(message: str) -> None:
+    kb.log_warn(message)
+
+def log_error(message: str) -> None:
+    kb.log_error(message)
+
+def get_param(key: str, default: str = "") -> str:
+    return kb.get_param(key, default)

@@ -375,15 +375,20 @@ func registerAdapters(cfg *config.Config, engine *executor.Engine) {
 		scriptsDir = filepath.Join(execDir, scriptsDir)
 	}
 
+	tempDir := cfg.Execution.TempDir
+	if !filepath.IsAbs(tempDir) {
+		tempDir = filepath.Join(execDir, tempDir)
+	}
+
 	bashAdapter := adapter.NewBashAdapter(
 		filepath.Join(scriptsDir, "bash", "api.sh"),
-		cfg.Execution.TempDir,
+		tempDir,
 	)
 	engine.RegisterAdapter(adapter.LanguageBash, bashAdapter)
 
 	pythonAdapter := adapter.NewPythonAdapter(
 		filepath.Join(scriptsDir, "python", "kb_api.py"),
-		cfg.Execution.TempDir,
+		tempDir,
 		"",
 	)
 	engine.RegisterAdapter(adapter.LanguagePython, pythonAdapter)
