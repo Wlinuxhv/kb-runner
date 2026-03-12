@@ -306,6 +306,11 @@ func runScripts(cmd *cobra.Command, args []string) error {
 
 	var tasks []*adapter.Task
 
+	// 处理 -s 参数
+	if scriptPath != "" {
+		args = append(args, scriptPath)
+	}
+
 	switch {
 	case interactive:
 		tasks, err = interactiveSelect(caseManager, cfg)
@@ -363,14 +368,21 @@ func createLogger(cfg *config.Config) (*logger.Logger, error) {
 }
 
 func registerAdapters(cfg *config.Config, engine *executor.Engine) {
+	execDir, _ := os.Getwd()
+	scriptsDir := cfg.Scripts.Directory
+
+	if !filepath.IsAbs(scriptsDir) {
+		scriptsDir = filepath.Join(execDir, scriptsDir)
+	}
+
 	bashAdapter := adapter.NewBashAdapter(
-		filepath.Join(cfg.Scripts.Directory, "bash", "api.sh"),
+		filepath.Join(scriptsDir, "bash", "api.sh"),
 		cfg.Execution.TempDir,
 	)
 	engine.RegisterAdapter(adapter.LanguageBash, bashAdapter)
 
 	pythonAdapter := adapter.NewPythonAdapter(
-		filepath.Join(cfg.Scripts.Directory, "python", "kb_api.py"),
+		filepath.Join(scriptsDir, "python", "kb_api.py"),
 		cfg.Execution.TempDir,
 		"",
 	)

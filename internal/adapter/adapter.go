@@ -116,10 +116,6 @@ func (a *BashAdapter) Validate(scriptPath string) error {
 		return fmt.Errorf("script path is a directory: %s", scriptPath)
 	}
 
-	if info.Mode()&0111 == 0 {
-		return fmt.Errorf("script is not executable: %s", scriptPath)
-	}
-
 	return nil
 }
 

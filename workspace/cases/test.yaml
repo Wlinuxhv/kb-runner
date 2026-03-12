@@ -1,0 +1,11 @@
+cases:
+  - name: test_security
+    path: D:\ai-code\kb-runnerx\scripts\bash\security_check.sh
+    language: bash
+    category: security
+    tags:
+      - critical
+      - daily
+    description: 测试安全检查
+    timeout: 300s
+    weight: 2.0

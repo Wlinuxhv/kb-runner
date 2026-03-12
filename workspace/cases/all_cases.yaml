@@ -1,0 +1,34 @@
+cases:
+  - name: security_check
+    path: ./scripts/bash/security_check.sh
+    language: bash
+    category: security
+    tags:
+      - critical
+      - daily
+    description: 系统安全检查
+    timeout: 300s
+    weight: 2.0
+    params:
+      target: production
+
+  - name: performance_check
+    path: ./scripts/python/performance_check.py
+    language: python
+    category: performance
+    tags:
+      - daily
+      - monitoring
+    description: 系统性能检查
+    timeout: 600s
+    weight: 1.5
+
+  - name: network_check
+    path: ./scripts/bash/network_check.sh
+    language: bash
+    category: network
+    tags:
+      - connectivity
+    description: 网络连通性检查
+    timeout: 120s
+    weight: 1.0
