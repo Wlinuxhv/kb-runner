@@ -1,0 +1,10 @@
+name: test_bash
+language: bash
+category: default
+tags:
+  - default
+description: TODO: 在这里填写CASE的描述信息
+timeout: 300s
+weight: 1.0
+params:
+  key: value
