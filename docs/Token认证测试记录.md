@@ -33,11 +33,13 @@ Starting KB Runner Web Server...
   Address: http://0.0.0.0:8081
   API:     http://0.0.0.0:8081/api/v1
   Token:   已启用认证
+  Raw Token:     test123
+  Hashed Token:  4T7J_xxxxxxxxxxxxx
 
 Press Ctrl+C to stop
 ```
 
-✅ **结果**: 显示"Token: 已启用认证"
+✅ **结果**: 显示"Token: 已启用认证"，并显示Raw Token和Hashed Token
 
 ### AUTH-002: 未认证访问首页
 

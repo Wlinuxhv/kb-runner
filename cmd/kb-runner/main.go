@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/signal"
@@ -924,7 +926,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Address: http://%s\n", addr)
 	fmt.Printf("  API:     http://%s/api/v1\n", addr)
 	if cfg.Server.Token != "" {
+		h := sha256.Sum256([]byte(cfg.Server.Token))
+		hashed := base64.URLEncoding.EncodeToString(h[:])
 		fmt.Printf("  Token:   已启用认证\n")
+		fmt.Printf("  Raw Token:     %s\n", cfg.Server.Token)
+		fmt.Printf("  Hashed Token:  %s\n", hashed)
 	}
 	fmt.Println("\nPress Ctrl+C to stop")
 
