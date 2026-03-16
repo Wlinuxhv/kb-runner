@@ -29,6 +29,7 @@ type Server struct {
 	processor *processor.Processor
 	router    *http.ServeMux
 	httpSrv   *http.Server
+	auth      *Auth
 }
 
 func NewServer(cfg *config.Config, log *logger.Logger) *Server {
@@ -41,6 +42,7 @@ func NewServer(cfg *config.Config, log *logger.Logger) *Server {
 		history:   NewHistoryManager(cfg),
 		processor: processor.NewProcessor(cfg, log),
 		router:    http.NewServeMux(),
+		auth:      NewAuth(cfg.Server.Token),
 	}
 }
 
@@ -92,8 +94,18 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("/api/v1/history/", s.handleHistoryDetail)
 	s.router.HandleFunc("/api/v1/health", s.handleHealth)
 
+	if s.auth != nil {
+		s.router.HandleFunc("/login", s.auth.HandleLogin)
+	}
+
 	distFS, _ := fs.Sub(webFS, "web/dist")
-	s.router.Handle("/", http.FileServer(http.FS(distFS)))
+	staticHandler := http.FileServer(http.FS(distFS))
+
+	if s.auth != nil {
+		s.router.Handle("/", s.auth.Middleware(staticHandler))
+	} else {
+		s.router.Handle("/", staticHandler)
+	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

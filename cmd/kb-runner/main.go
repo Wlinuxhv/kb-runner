@@ -42,6 +42,7 @@ var (
 	searchTerm   string
 	serveHost    string
 	servePort    int
+	serveToken   string
 )
 
 var rootCmd = &cobra.Command{
@@ -151,7 +152,8 @@ var serveCmd = &cobra.Command{
 示例:
   kb-runner serve                    # 默认端口8080
   kb-runner serve --port 9090        # 指定端口
-  kb-runner serve --host 127.0.0.1   # 指定监听地址`,
+  kb-runner serve --host 127.0.0.1   # 指定监听地址
+  kb-runner serve --token mytoken     # 指定访问Token`,
 	RunE: runServe,
 }
 
@@ -204,6 +206,7 @@ func init() {
 
 	serveCmd.Flags().StringVarP(&serveHost, "host", "H", "0.0.0.0", "监听地址")
 	serveCmd.Flags().IntVarP(&servePort, "port", "p", 8080, "监听端口")
+	serveCmd.Flags().StringVar(&serveToken, "token", "", "访问Token")
 }
 
 func initConfig() {
@@ -900,6 +903,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if serveToken != "" {
+		cfg.Server.Token = serveToken
+	}
+
 	srv := api.NewServer(cfg, log)
 
 	registerAdapters(cfg, srv.Engine())
@@ -916,7 +923,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Starting KB Runner Web Server...\n")
 	fmt.Printf("  Address: http://%s\n", addr)
 	fmt.Printf("  API:     http://%s/api/v1\n", addr)
-	fmt.Printf("  Docs:    http://%s/api/v1/docs\n", addr)
+	if cfg.Server.Token != "" {
+		fmt.Printf("  Token:   已启用认证\n")
+	}
 	fmt.Println("\nPress Ctrl+C to stop")
 
 	sigChan := make(chan os.Signal, 1)
