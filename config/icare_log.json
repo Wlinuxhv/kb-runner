@@ -1,0 +1,19 @@
+{
+  "log_server": {
+    "upload_url": "acli.sangfor.com.cn:5888",
+    "view_url": "14.17.59.69:22468",
+    "download_path": "\\\\10.117.59.3\\acli_log"
+  },
+  "bello": {
+    "host": "10.131.139.3",
+    "username": "admin",
+    "password_hash": "c1f266b78e2e7e7ff4d26f7984ba46865fc49fac712ca7ba190778cae5e53c24",
+    "salt": "082515c64119b506785a3ec7b4382dc0",
+    "log_dir": "/log/Q2025081801802"
+  },
+  "archive": {
+    "password_hash": "daee155f538166c49b57352b5aea6c645a85093521f353d5051fe70e7313281f",
+    "salt": "324f10bb46325c65dba3ba1b533ee1dd",
+    "algorithm": "SHA256"
+  }
+}
