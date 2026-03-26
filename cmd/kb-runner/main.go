@@ -419,11 +419,27 @@ func registerAdapters(cfg *config.Config, engine *executor.Engine) {
 }
 
 func loadCases(cfg *config.Config, caseManager *cases.Manager) error {
+	// 加载工作目录下的cases
 	casesDir := filepath.Join(cfg.Execution.WorkDir, "cases")
-	if _, err := os.Stat(casesDir); os.IsNotExist(err) {
-		return nil
+	if _, err := os.Stat(casesDir); !os.IsNotExist(err) {
+		if err := caseManager.LoadFromDirectory(casesDir); err != nil {
+			return err
+		}
 	}
-	return caseManager.LoadFromDirectory(casesDir)
+
+	// 加载kbscript目录下的cases
+	kbscriptDir := cfg.Scripts.KBscriptDirectory
+	if !filepath.IsAbs(kbscriptDir) {
+		execDir, _ := os.Getwd()
+		kbscriptDir = filepath.Join(execDir, kbscriptDir)
+	}
+	if _, err := os.Stat(kbscriptDir); !os.IsNotExist(err) {
+		if err := caseManager.LoadFromDirectory(kbscriptDir); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func loadScenarios(cfg *config.Config, scenarioManager *scenario.Manager) error {

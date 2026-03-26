@@ -1,34 +1,65 @@
 cases:
-  - name: security_check
-    path: ./scripts/bash/security_check.sh
+  - name: AMD-Milan-CPU降频卡顿-28510
+    path: ./中台/AMD-Milan-CPU降频卡顿-28510
     language: bash
-    category: security
+    category: CPU
     tags:
-      - critical
-      - daily
-    description: 系统安全检查
+      - CPU
+      - 降频
+    description: AMD Milan处理器降频导致虚拟机卡顿问题
     timeout: 300s
     weight: 2.0
     params:
       target: production
 
-  - name: performance_check
-    path: ./scripts/python/performance_check.py
-    language: python
-    category: performance
-    tags:
-      - daily
-      - monitoring
-    description: 系统性能检查
-    timeout: 600s
-    weight: 1.5
-
-  - name: network_check
-    path: ./scripts/bash/network_check.sh
+  - name: FC存储离线-32147
+    path: ./中台/FC存储离线-32147
     language: bash
-    category: network
+    category: 存储
     tags:
-      - connectivity
-    description: 网络连通性检查
-    timeout: 120s
-    weight: 1.0
+      - FC存储
+      - 离线
+    description: FC存储离线问题排查
+    timeout: 300s
+    weight: 2.0
+    params:
+      target: production
+
+  - name: 磁盘快照致虚拟机卡死-33264
+    path: ./中台/磁盘快照致虚拟机卡死-33264
+    language: bash
+    category: 存储
+    tags:
+      - 磁盘
+      - 快照
+    description: 磁盘快照导致虚拟机卡死问题
+    timeout: 300s
+    weight: 2.0
+    params:
+      target: production
+
+  - name: iscsi存储异常离线-31557
+    path: ./中台/iscsi存储异常离线-31557
+    language: bash
+    category: 存储
+    tags:
+      - iscsi
+      - 离线
+    description: iSCSI存储异常离线问题排查
+    timeout: 300s
+    weight: 2.0
+    params:
+      target: production
+
+  - name: nfs相关问题-35531
+    path: ./中台/nfs相关问题-35531
+    language: bash
+    category: 存储
+    tags:
+      - NFS
+      - 问题排查
+    description: NFS相关问题排查
+    timeout: 300s
+    weight: 2.0
+    params:
+      target: production

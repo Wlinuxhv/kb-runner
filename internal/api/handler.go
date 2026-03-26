@@ -27,6 +27,13 @@ func (s *Server) writeJSON(w http.ResponseWriter, statusCode int, data interface
 	json.NewEncoder(w).Encode(data)
 }
 
+func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(data)
+}
+
 func (s *Server) writeError(w http.ResponseWriter, statusCode int, message string) {
 	s.writeJSON(w, statusCode, Response{
 		Success:   false,
@@ -353,4 +360,162 @@ func getStatusFromSummary(summary result.MatrixSummary) string {
 		return "warning"
 	}
 	return "success"
+}
+
+// handleExecutionDetail 获取执行结果详情
+func (s *Server) handleExecutionDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// 提取execution ID
+	execID := strings.TrimPrefix(r.URL.Path, "/api/v1/execution/")
+	if execID == "" {
+		s.writeError(w, http.StatusBadRequest, "execution id required")
+		return
+	}
+
+	// 获取历史记录
+	record, err := s.history.Get(execID)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, "execution not found")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, Response{
+		Success:   true,
+		Data:      record,
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
+}
+
+// handleUserRole 获取当前用户角色
+func (s *Server) handleUserRole(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	role := GetRole(r)
+	if role == "" {
+		role = "user"
+	}
+
+	s.writeJSON(w, http.StatusOK, Response{
+		Success: true,
+		Data: map[string]interface{}{
+			"role": role,
+		},
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
+}
+
+// handleSkill 处理Skill相关请求
+func (s *Server) handleSkill(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+
+	// 判断路由类型
+	if strings.Contains(path, "/skill/history/") {
+		// 获取指定版本
+		if r.Method == http.MethodGet {
+			s.skillMgr.HandleSkillHistoryDetail(w, r)
+		}
+		return
+	}
+
+	if strings.HasSuffix(path, "/skill/history") {
+		// 获取版本历史
+		if r.Method == http.MethodGet {
+			s.skillMgr.HandleSkillHistory(w, r)
+		}
+		return
+	}
+
+	if strings.HasSuffix(path, "/skill/rollback") {
+		// 回滚
+		if r.Method == http.MethodPost {
+			s.skillMgr.HandleSkillRollback(w, r)
+		}
+		return
+	}
+
+	if strings.HasSuffix(path, "/skill") {
+		// Skill CRUD
+		switch r.Method {
+		case http.MethodGet:
+			s.skillMgr.HandleSkillGet(w, r)
+		case http.MethodPut:
+			s.skillMgr.HandleSkillUpdate(w, r)
+		default:
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
+}
+
+// handleSkillHistory 处理版本历史列表
+func (s *Server) handleSkillHistory(w http.ResponseWriter, r *http.Request) {
+	s.handleSkill(w, r)
+}
+
+// handleSkillHistoryDetail 处理版本详情
+func (s *Server) handleSkillHistoryDetail(w http.ResponseWriter, r *http.Request) {
+	s.handleSkill(w, r)
+}
+
+// handleSkillRollback 处理回滚
+func (s *Server) handleSkillRollback(w http.ResponseWriter, r *http.Request) {
+	s.handleSkill(w, r)
+}
+
+// handleKB 处理KB配置请求
+func (s *Server) handleKB(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+
+	// Skill相关的路由处理
+	if strings.Contains(path, "/skill/history/") {
+		// 获取指定版本
+		if r.Method == http.MethodGet {
+			s.skillMgr.HandleSkillHistoryDetail(w, r)
+			return
+		}
+	}
+
+	if strings.HasSuffix(path, "/skill/history") {
+		// 获取版本历史
+		if r.Method == http.MethodGet {
+			s.skillMgr.HandleSkillHistory(w, r)
+			return
+		}
+	}
+
+	if strings.HasSuffix(path, "/skill/rollback") {
+		// 回滚
+		if r.Method == http.MethodPost {
+			s.skillMgr.HandleSkillRollback(w, r)
+			return
+		}
+	}
+
+	if strings.HasSuffix(path, "/skill") {
+		// Skill CRUD
+		switch r.Method {
+		case http.MethodGet:
+			s.skillMgr.HandleSkillGet(w, r)
+		case http.MethodPut:
+			s.skillMgr.HandleSkillUpdate(w, r)
+		default:
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
+
+	// KB配置请求 (不是skill相关的)
+	if !strings.Contains(path, "/skill") && strings.Contains(path, "/kb/") {
+		if r.Method == http.MethodGet {
+			s.skillMgr.HandleKBConfig(w, r, s.caseMgr)
+			return
+		}
+	}
 }

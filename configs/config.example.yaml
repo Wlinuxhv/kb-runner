@@ -15,6 +15,7 @@ execution:
 
 scripts:
   directory: "./scripts"
+  kbscript_directory: "./kbscript"
   allowed_languages:
     - bash
     - python

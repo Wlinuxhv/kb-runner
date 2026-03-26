@@ -84,6 +84,10 @@ func (m *Manager) LoadFromFile(path string) error {
 }
 
 func (m *Manager) LoadFromDirectory(dir string) error {
+	return m.loadFromDirectoryRecursive(dir)
+}
+
+func (m *Manager) loadFromDirectoryRecursive(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("failed to read directory: %w", err)
@@ -91,21 +95,92 @@ func (m *Manager) LoadFromDirectory(dir string) error {
 
 	for _, entry := range entries {
 		if entry.IsDir() {
-			continue
-		}
-
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext != ".yaml" && ext != ".yml" {
-			continue
-		}
-
-		path := filepath.Join(dir, entry.Name())
-		if err := m.LoadFromFile(path); err != nil {
-			return fmt.Errorf("failed to load cases from %s: %w", path, err)
+			// 递归处理子目录
+			if err := m.loadFromDirectoryRecursive(filepath.Join(dir, entry.Name())); err != nil {
+				return err
+			}
+		} else {
+			// 检查是否为case.yaml文件
+			if entry.Name() == "case.yaml" || entry.Name() == "case.yml" {
+				caseDir := filepath.Dir(filepath.Join(dir, entry.Name()))
+				if err := m.loadCaseFromDirectory(caseDir); err != nil {
+					return err
+				}
+			}
 		}
 	}
 
 	return nil
+}
+
+func (m *Manager) loadCaseFromDirectory(caseDir string) error {
+	// 读取case.yaml文件
+	caseYamlPath := filepath.Join(caseDir, "case.yaml")
+	if _, err := os.Stat(caseYamlPath); os.IsNotExist(err) {
+		caseYamlPath = filepath.Join(caseDir, "case.yml")
+		if _, err := os.Stat(caseYamlPath); os.IsNotExist(err) {
+			return nil // 没有case.yaml文件，跳过
+		}
+	}
+
+	// 读取配置文件
+	data, err := os.ReadFile(caseYamlPath)
+	if err != nil {
+		return fmt.Errorf("failed to read case.yaml: %w", err)
+	}
+
+	var c Case
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		return fmt.Errorf("failed to unmarshal case.yaml: %w", err)
+	}
+
+	// 设置默认值
+	if c.Name == "" {
+		c.Name = filepath.Base(caseDir)
+	}
+	if c.Timeout == 0 {
+		c.Timeout = 300 * time.Second
+	}
+	if c.Weight == 0 {
+		c.Weight = 1.0
+	}
+	if c.Params == nil {
+		c.Params = make(map[string]string)
+	}
+	if c.Tags == nil {
+		c.Tags = []string{}
+	}
+	if c.Language == "" {
+		c.Language = "bash"
+	}
+
+	// 自动设置脚本路径
+	if c.Path == "" {
+		scriptExt := ".sh"
+		if c.Language == "python" {
+			scriptExt = ".py"
+		}
+		scriptPath := filepath.Join(caseDir, "run"+scriptExt)
+		if _, err := os.Stat(scriptPath); err == nil {
+			c.Path = scriptPath
+		} else {
+			// 尝试使用目录名作为脚本名
+			scriptPath = filepath.Join(caseDir, filepath.Base(caseDir)+scriptExt)
+			if _, err := os.Stat(scriptPath); err == nil {
+				c.Path = scriptPath
+			} else {
+				return fmt.Errorf("no script file found for case %s", c.Name)
+			}
+		}
+	}
+
+	// 验证CASE
+	if err := c.Validate(); err != nil {
+		return err
+	}
+
+	// 添加到管理器
+	return m.Add(&c)
 }
 
 func (m *Manager) Add(c *Case) error {

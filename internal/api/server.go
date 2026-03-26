@@ -5,6 +5,8 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"kb-runnerx/internal/adapter"
@@ -30,19 +32,45 @@ type Server struct {
 	router    *http.ServeMux
 	httpSrv   *http.Server
 	auth      *Auth
+	skillMgr  *SkillManager
 }
 
 func NewServer(cfg *config.Config, log *logger.Logger) *Server {
+	// 获取工作目录
+	workDir := cfg.Execution.WorkDir
+	if workDir == "" {
+		workDir = "./workspace"
+	}
+
+	caseMgr := cases.NewManager()
+	scenariosMgr := scenario.NewManager()
+
+	// 加载cases和scenarios
+	casesDir := filepath.Join(workDir, "cases")
+	if _, err := os.Stat(casesDir); err == nil {
+		if err := caseMgr.LoadFromDirectory(casesDir); err != nil {
+			log.Error("Failed to load cases", "error", err)
+		}
+	}
+
+	scenariosDir := filepath.Join(workDir, "scenarios")
+	if _, err := os.Stat(scenariosDir); err == nil {
+		if err := scenariosMgr.LoadFromDirectory(scenariosDir); err != nil {
+			log.Error("Failed to load scenarios", "error", err)
+		}
+	}
+
 	return &Server{
 		cfg:       cfg,
 		log:       log,
 		engine:    executor.NewEngine(cfg, log),
-		caseMgr:   cases.NewManager(),
-		scenarios: scenario.NewManager(),
+		caseMgr:   caseMgr,
+		scenarios: scenariosMgr,
 		history:   NewHistoryManager(cfg),
 		processor: processor.NewProcessor(cfg, log),
 		router:    http.NewServeMux(),
 		auth:      NewAuth(cfg.Server.Token),
+		skillMgr:  NewSkillManager(workDir),
 	}
 }
 
@@ -93,6 +121,15 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("/api/v1/history", s.handleHistory)
 	s.router.HandleFunc("/api/v1/history/", s.handleHistoryDetail)
 	s.router.HandleFunc("/api/v1/health", s.handleHealth)
+
+	// 执行结果API
+	s.router.HandleFunc("/api/v1/execution/", s.handleExecutionDetail)
+
+	// Skill/KB管理API - 使用统一的handler
+	s.router.HandleFunc("/api/v1/kb/", s.handleKB)
+
+	// 用户角色API
+	s.router.HandleFunc("/api/v1/user/role", s.handleUserRole)
 
 	if s.auth != nil {
 		s.router.HandleFunc("/login", s.auth.HandleLogin)

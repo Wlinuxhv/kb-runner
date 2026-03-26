@@ -37,9 +37,10 @@ type ExecutionConfig struct {
 }
 
 type ScriptsConfig struct {
-	Directory        string   `mapstructure:"directory"`
-	AllowedLanguages []string `mapstructure:"allowed_languages"`
-	MaxSize          string   `mapstructure:"max_size"`
+	Directory          string   `mapstructure:"directory"`
+	KBscriptDirectory  string   `mapstructure:"kbscript_directory"`
+	AllowedLanguages   []string `mapstructure:"allowed_languages"`
+	MaxSize            string   `mapstructure:"max_size"`
 }
 
 type LoggingConfig struct {
@@ -102,9 +103,10 @@ func DefaultConfig() *Config {
 			EnvVars:     make(map[string]string),
 		},
 		Scripts: ScriptsConfig{
-			Directory:        "./scripts",
-			AllowedLanguages: []string{"bash", "python"},
-			MaxSize:          "10MB",
+			Directory:          "./scripts",
+			KBscriptDirectory:  "./kbscript",
+			AllowedLanguages:   []string{"bash", "python"},
+			MaxSize:            "10MB",
 		},
 		Logging: LoggingConfig{
 			Level:  "info",
@@ -239,6 +241,9 @@ func (c *Config) EnsureDirectories() error {
 		return err
 	}
 	if err := EnsureDir(c.Scripts.Directory); err != nil {
+		return err
+	}
+	if err := EnsureDir(c.Scripts.KBscriptDirectory); err != nil {
 		return err
 	}
 	return nil

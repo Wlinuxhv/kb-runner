@@ -1,24 +1,92 @@
-@startuml
-actor Client as 客户端
-component ExecutionEngine as 执行引擎
-component ScriptAdapter as 脚本适配器
-component Script as 脚本
-component APIModule as API模块
-component LogSystem as 日志系统
-component ResultProcessor as 结果处理器
-component MatrixGenerator as 矩阵生成器
-component Backend as 后端系统
-component ConfigManager as 配置管理
+@startuml KB Runner 系统架构图
+!theme plain
+skinparam componentStyle rectangle
 
-客户端 --> 执行引擎 : 提交脚本
-执行引擎 --> 脚本适配器 : 选择适配器
-脚本适配器 --> 脚本 : 执行脚本
-脚本 --> API模块 : 调用API
-API模块 --> 日志系统 : 记录日志
-API模块 --> 结果处理器 : 记录结果
-执行引擎 --> 脚本 : 获取执行状态
-结果处理器 --> 矩阵生成器 : 处理结果
-矩阵生成器 --> 后端系统 : 导入后端
-配置管理 --> 执行引擎 : 提供配置
-配置管理 --> 结果处理器 : 提供权重
+actor 用户 as "用户 (CLI/Web)" #90EE90
+
+package "cmd/kb-runner" {
+    [CLI入口] as CLI #98FB98
+}
+
+package "internal" {
+    package "api" {
+        [Web服务器] as API #87CEEB
+        [REST API Handler] as APIHandler #87CEEB
+        [认证中间件] as Auth #87CEEB
+    }
+    
+    package "executor" {
+        [执行引擎] as Engine #FFD700
+    }
+    
+    package "adapter" {
+        [适配器注册表] as Registry #FFA07A
+        [Bash适配器] as BashAdapter #FFA07A
+        [Python适配器] as PythonAdapter #FFA07A
+    }
+    
+    package "cases" {
+        [CASE管理器] as CaseMgr #DDA0DD
+    }
+    
+    package "scenario" {
+        [场景管理器] as ScenarioMgr #DDA0DD
+    }
+    
+    package "processor" {
+        [结果处理器] as Processor #FF69B4
+    }
+}
+
+package "pkg" {
+    [配置管理] as Config #4682B4
+    [日志系统] as Logger #4682B4
+    [结果模型] as Result #4682B4
+}
+
+package "scripts" {
+    [Bash脚本] as BashScript #F0E68C
+    [Python脚本] as PythonScript #F0E68C
+    [API库] as ScriptAPI #F0E68C
+}
+
+package "中台" {
+    [技能库] as SkillLib #FF6347
+}
+
+database "文件系统" as FileSystem #DEB887
+
+用户 --> CLI : 命令行
+用户 --> API : HTTP请求
+
+CLI --> Config : 加载配置
+CLI --> Logger : 记录日志
+API --> Config : 加载配置
+API --> Logger : 记录日志
+
+APIHandler --> Engine : 执行任务
+APIHandler --> CaseMgr : 查询CASE
+APIHandler --> ScenarioMgr : 查询场景
+APIHandler --> Auth : 认证
+
+Engine --> Registry : 选择适配器
+Registry --> BashAdapter : Bash脚本
+Registry --> PythonAdapter : Python脚本
+
+BashAdapter --> BashScript : 执行
+PythonAdapter --> PythonScript : 执行
+BashScript --> ScriptAPI : 调用API
+PythonScript --> ScriptAPI : 调用API
+
+ScriptAPI --> Logger : 记录
+ScriptAPI --> Result : 保存结果
+Result --> FileSystem : 写入JSON
+
+Engine --> Processor : 处理结果
+Processor --> Result : 生成矩阵
+
+CaseMgr --> FileSystem : 读取配置
+ScenarioMgr --> FileSystem : 读取配置
+SkillLib --> FileSystem : 技能脚本
+
 @enduml
