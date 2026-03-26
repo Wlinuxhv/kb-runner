@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 	"kb-runnerx/internal/api"
 	"kb-runnerx/internal/cases"
 	"kb-runnerx/internal/executor"
+	"kb-runnerx/internal/preprocessor"
 	"kb-runnerx/internal/processor"
 	"kb-runnerx/internal/scenario"
 	"kb-runnerx/pkg/config"
@@ -45,6 +47,9 @@ var (
 	serveHost    string
 	servePort    int
 	serveToken   string
+	runMode      string
+	offlineQNo   string
+	offlineRoot  string
 )
 
 var rootCmd = &cobra.Command{
@@ -159,8 +164,24 @@ var serveCmd = &cobra.Command{
 	RunE: runServe,
 }
 
+var preprocessCmd = &cobra.Command{
+	Use:   "preprocess",
+	Short: "日志预处理",
+	Long: `预处理日志包，解压加密的ZIP文件。
+
+示例:
+  kb-runner preprocess Q2026031201098     # 预处理指定Q单号的日志
+  kb-runner preprocess Q2026031201098 --root ./workspace/icare_log/logall`,
+	Args: cobra.ExactArgs(1),
+	RunE: preprocessLog,
+}
+
 var (
-	initLanguage  string
+	preprocessRoot string
+)
+
+var (
+	initLanguage string
 	initOutput   string
 	initTemplate string
 )
@@ -193,6 +214,9 @@ func init() {
 	runCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "交互式选择执行")
 	runCmd.Flags().StringVar(&category, "category", "", "执行指定分类的所有CASE")
 	runCmd.Flags().StringSliceVar(&tags, "tags", nil, "执行指定标签的所有CASE")
+	runCmd.Flags().StringVar(&runMode, "mode", "online", "运行模式 (online/offline)")
+	runCmd.Flags().StringVar(&offlineQNo, "qno", "", "离线日志包Q单号（用于offline模式自动解压定位）")
+	runCmd.Flags().StringVar(&offlineRoot, "log-root", "./workspace/icare_log/logall", "离线日志根目录（用于offline模式）")
 
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(showCmd)
@@ -209,6 +233,43 @@ func init() {
 	serveCmd.Flags().StringVarP(&serveHost, "host", "H", "0.0.0.0", "监听地址")
 	serveCmd.Flags().IntVarP(&servePort, "port", "p", 8080, "监听端口")
 	serveCmd.Flags().StringVar(&serveToken, "token", "", "访问Token")
+
+	preprocessCmd.Flags().StringVar(&preprocessRoot, "root", "./workspace/icare_log/logall", "日志根目录")
+
+	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(showCmd)
+	rootCmd.AddCommand(scenarioCmd)
+	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(preprocessCmd)
+}
+
+func preprocessLog(cmd *cobra.Command, args []string) error {
+	qno := args[0]
+
+	fmt.Printf("开始预处理日志包: %s\n", qno)
+
+	p := preprocessor.NewLogPreprocessor()
+	p.RootPath = preprocessRoot
+	p.ConfigPath = "./config/icare_log.json"
+
+	if err := p.Init(qno); err != nil {
+		return fmt.Errorf("初始化预处理失败: %w", err)
+	}
+
+	if err := p.Process(); err != nil {
+		return fmt.Errorf("预处理失败: %w", err)
+	}
+
+	fmt.Printf("\n预处理完成!\n")
+	fmt.Printf("日志路径: %s\n", p.GetQNoPath())
+	if p.GetExtractPath() != "" {
+		fmt.Printf("解压路径: %s\n", p.GetExtractPath())
+	}
+
+	return nil
 }
 
 func initConfig() {
@@ -358,6 +419,93 @@ func runScripts(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no tasks to execute")
 	}
 
+	// offline 模式：注入 KB_RUN_MODE，并在给定 Q 单号时自动预处理解压，注入离线路径
+	if strings.ToLower(runMode) == "offline" {
+		var qnoDir string
+		if offlineQNo != "" {
+			p := preprocessor.NewLogPreprocessor()
+			p.RootPath = offlineRoot
+			p.ConfigPath = "./config/icare_log.json"
+			if err := p.Init(offlineQNo); err != nil {
+				return fmt.Errorf("offline preprocess init failed: %w", err)
+			}
+			if err := p.Process(); err != nil {
+				return fmt.Errorf("offline preprocess failed: %w", err)
+			}
+			// 解压根目录：优先 extract dir，否则用 qno path
+			qnoDir = p.GetExtractPath()
+			if qnoDir == "" {
+				qnoDir = p.GetQNoPath()
+			}
+		}
+
+		hosts, logDirs := discoverOfflineHostsAndLogDirs(qnoDir)
+		host := ""
+		hostDir := ""
+		logDir := ""
+		if len(hosts) > 0 {
+			host = hosts[0]
+			hostDir = filepath.Join(qnoDir, host)
+		}
+		if len(logDirs) > 0 {
+			logDir = logDirs[0]
+		}
+
+		var hostsJSON []byte
+		var logDirsJSON []byte
+		if len(hosts) > 0 {
+			hostsJSON, _ = json.Marshal(hosts)
+		}
+		if len(logDirs) > 0 {
+			logDirsJSON, _ = json.Marshal(logDirs)
+		}
+
+		icareRoot := ""
+		if qnoDir != "" {
+			// qnoDir: .../icare_log/logall/<yearMonth>/<QNo>
+			// ICARE_LOG_ROOT: .../icare_log/logall
+			icareRoot = filepath.Dir(filepath.Dir(qnoDir))
+		}
+
+		for _, t := range tasks {
+			if t.Env == nil {
+				t.Env = make(map[string]string)
+			}
+			t.Env["KB_RUN_MODE"] = "offline"
+			if qnoDir != "" {
+				t.Env["KB_OFFLINE_QNO_DIR"] = qnoDir
+			}
+			if offlineQNo != "" {
+				t.Env["KB_OFFLINE_QNO"] = offlineQNo
+			}
+			if icareRoot != "" {
+				t.Env["KB_OFFLINE_ICARE_LOG_ROOT"] = icareRoot
+			}
+			if host != "" {
+				t.Env["KB_OFFLINE_HOST"] = host
+			}
+			if hostDir != "" {
+				t.Env["KB_OFFLINE_HOST_DIR"] = hostDir
+			}
+			if logDir != "" {
+				t.Env["KB_OFFLINE_LOG_DIR"] = logDir
+			}
+			if len(hostsJSON) > 0 {
+				t.Env["KB_OFFLINE_HOSTS_JSON"] = string(hostsJSON)
+			}
+			if len(logDirsJSON) > 0 {
+				t.Env["KB_OFFLINE_LOG_DIRS_JSON"] = string(logDirsJSON)
+			}
+		}
+	} else {
+		for _, t := range tasks {
+			if t.Env == nil {
+				t.Env = make(map[string]string)
+			}
+			t.Env["KB_RUN_MODE"] = "online"
+		}
+	}
+
 	execResults, err := engine.ExecuteBatch(ctx, tasks)
 	if err != nil {
 		return fmt.Errorf("execution failed: %w", err)
@@ -369,7 +517,78 @@ func runScripts(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("result processing failed: %w", err)
 	}
 
+	// 保存历史记录
+	if cfg.History.Enabled {
+		if err := saveHistory(cfg, matrix, caseName, scenarioName); err != nil {
+			log.Warn("Failed to save history", "error", err)
+		}
+	}
+
 	return outputResults(matrix, outputFormat, outputDir)
+}
+
+func discoverOfflineHostsAndLogDirs(qnoDir string) ([]string, []string) {
+	if qnoDir == "" {
+		return nil, nil
+	}
+
+	entries, err := os.ReadDir(qnoDir)
+	if err != nil {
+		return nil, nil
+	}
+
+	excluded := map[string]bool{
+		"_members":           true,
+		"cfgmaster_ini":      true,
+		"collect_record.txt": true,
+		"log_list.json":      true,
+	}
+
+	isDir := func(p string) bool {
+		info, err := os.Stat(p)
+		return err == nil && info.IsDir()
+	}
+
+	hosts := make([]string, 0)
+	logDirs := make([]string, 0)
+
+	for _, entry := range entries {
+		if entry.IsDir() == false {
+			continue
+		}
+		name := entry.Name()
+		if excluded[name] {
+			continue
+		}
+
+		hostDir := filepath.Join(qnoDir, name)
+		candidates := []string{
+			filepath.Join(hostDir, "sf", "log"), // 你实际解压出的重点结构
+			filepath.Join(hostDir, "log"),
+		}
+
+		chosen := ""
+		for _, c := range candidates {
+			if !isDir(c) {
+				continue
+			}
+			// 优先选择包含 blackbox 的 log 根（更贴合脚本关注点）
+			if isDir(filepath.Join(c, "blackbox")) {
+				chosen = c
+				break
+			}
+			if chosen == "" {
+				chosen = c
+			}
+		}
+
+		if chosen != "" {
+			hosts = append(hosts, name)
+			logDirs = append(logDirs, chosen)
+		}
+	}
+
+	return hosts, logDirs
 }
 
 func loadConfig() (*config.Config, error) {
@@ -965,5 +1184,55 @@ func runServe(cmd *cobra.Command, args []string) error {
 }
 
 func generateID() string {
-	return fmt.Sprintf("task-%d", time.Now().UnixNano())
+	return fmt.Sprintf("exec-%d-%d", time.Now().Unix(), time.Now().UnixNano()%1000000)
+}
+
+func saveHistory(cfg *config.Config, matrix *result.ResultMatrix, caseName, scenarioName string) error {
+	historyDir := filepath.Join(cfg.Execution.WorkDir, "history")
+	if err := os.MkdirAll(historyDir, 0755); err != nil {
+		return err
+	}
+
+	status := "success"
+	if matrix.Summary.FailureCount > 0 {
+		status = "failure"
+	} else if matrix.Summary.WarningCount > 0 {
+		status = "warning"
+	}
+
+	cases := []string{}
+	if caseName != "" {
+		cases = []string{caseName}
+	}
+
+	record := map[string]interface{}{
+		"execution_id": matrix.ExecutionID,
+		"timestamp":    matrix.Timestamp.Format(time.RFC3339),
+		"status":       status,
+		"trigger":      "cli",
+		"cases":        cases,
+		"summary": map[string]interface{}{
+			"total_scripts":    matrix.Summary.TotalScripts,
+			"success_count":    matrix.Summary.SuccessCount,
+			"failure_count":    matrix.Summary.FailureCount,
+			"warning_count":    matrix.Summary.WarningCount,
+			"average_score":    matrix.Summary.AverageScore,
+			"weighted_average": matrix.Summary.WeightedAverage,
+		},
+		"result": matrix,
+	}
+
+	if scenarioName != "" {
+		record["scenario"] = scenarioName
+	}
+
+	filename := fmt.Sprintf("history_%s.json", matrix.ExecutionID)
+	path := filepath.Join(historyDir, filename)
+
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
 }

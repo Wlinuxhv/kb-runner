@@ -24,8 +24,8 @@ icare_log_init() {
     fi
 
     # 验证Q单号格式
-    if ! [[ "$qno" =~ ^Q[0-9]{12}$ ]]; then
-        echo "Error: Q单号格式错误，应为Q+12位数字，如Q2026031700424"
+    if ! [[ "$qno" =~ ^Q[0-9]{12,13}$ ]]; then
+        echo "Error: Q单号格式错误，应为Q+12-13位数字，如Q2026031700424或Q2026031201098"
         return 1
     fi
 
@@ -39,9 +39,6 @@ icare_log_init() {
 
     # 自动查找主机
     _icare_find_hosts
-
-    # 自动解压（如果需要）
-    _icare_extract_if_needed
 }
 
 # 从Q单号解析年月份
@@ -185,6 +182,11 @@ icare_log_set_host() {
 
 # 获取日志目录路径
 icare_log_get_log_path() {
+    # offline 模式：优先使用框架注入的最终日志根目录，避免遍历整个 host 目录导致性能问题
+    if [ "${KB_RUN_MODE:-online}" = "offline" ] && [ -n "${KB_OFFLINE_LOG_DIR:-}" ]; then
+        echo "$KB_OFFLINE_LOG_DIR"
+        return 0
+    fi
     echo "$ICARE_LOG_ROOT/$_ICARE_YEARMONTH/$_ICARE_QNO/$_ICARE_HOST"
 }
 

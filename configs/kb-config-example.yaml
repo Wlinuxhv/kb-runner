@@ -1,0 +1,60 @@
+# KB 脚本配置文件示例
+# 每个 KB 脚本对应一个配置文件，定义步骤权重和期望状态
+
+# 基本信息
+name: "A100 显卡问题"
+language: bash
+category: hardware
+tags:
+  - gpu
+  - A100
+  - hardware
+description: "A100 显卡相关问题的检查和排查"
+timeout: 300s
+
+# 得分配置 - 满分 100 分
+scoring:
+  # 总分满分
+  max_score: 100.0
+  
+  # 步骤配置：每个步骤的权重和期望状态
+  # 权重总和应该为 1.0 (即 100%)
+  # 如果权重总和不为 1.0，系统会自动归一化
+  steps:
+    - name: "检查相关告警"
+      weight: 0.25        # 占 25 分
+      expected_status: "success"  # 期望状态：success 或 failure
+      description: "检查存储、网卡、宕机、显卡等相关告警"
+      
+    - name: "检查 GPU 设备信息"
+      weight: 0.25        # 占 25 分
+      expected_status: "success"
+      description: "通过 lspci 检查 GPU 设备信息"
+      
+    - name: "检查 NVIDIA 驱动状态"
+      weight: 0.25        # 占 25 分
+      expected_status: "success"
+      description: "通过 nvidia-smi 检查驱动状态"
+      
+    - name: "结果分析与汇报"
+      weight: 0.25        # 占 25 分
+      expected_status: "success"
+      description: "综合分析并给出建议"
+
+# 参数配置
+params:
+  kb_id: "32920"
+  kb_source: "A100 显卡问题 KB"
+
+# 扩展字段 - 可以自定义任何字段
+extensions:
+  author: "support-team"
+  version: "1.0.0"
+  created_at: "2026-03-26"
+  updated_at: "2026-03-26"
+  related_kbs:
+    - "28510"
+    - "26990"
+  custom_fields:
+    priority: "high"
+    sla_hours: 24

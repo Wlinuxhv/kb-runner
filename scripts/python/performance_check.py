@@ -16,6 +16,12 @@ from kb_api import kb_init, kb_save, step_start, step_success, step_warning, ste
 
 def main():
     kb_init()
+
+    if os.environ.get("KB_RUN_MODE", "online").lower() == "offline":
+        step_start("offline_mode_skip")
+        step_warning("offline mode: skip real performance checks (/proc/disk/etc), analyze logs instead")
+        kb_save()
+        return
     
     step_start("check_cpu")
     try:

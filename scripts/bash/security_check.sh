@@ -1,9 +1,17 @@
 #!/bin/bash
 # 安全检查脚本示例
 
-source ./scripts/bash/api.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/api.sh"
 
 kb_init
+
+if [ "${KB_RUN_MODE:-online}" = "offline" ]; then
+    step_start "offline_mode_skip"
+    step_warning "offline mode: skip real system commands (df/free/etc), analyze logs instead"
+    kb_save
+    exit 0
+fi
 
 step_start "check_file_permissions"
 if [ -r "/etc/passwd" ]; then

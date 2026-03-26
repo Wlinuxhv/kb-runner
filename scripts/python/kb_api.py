@@ -337,3 +337,58 @@ def log_error(message: str) -> None:
 
 def get_param(key: str, default: str = "") -> str:
     return kb.get_param(key, default)
+
+
+def kb_exec(command: str, *, timeout: int = 0) -> str:
+    """
+    受控命令执行：
+    - online: 允许执行命令并返回 stdout
+    - offline: 禁止执行，记录 warning 并返回空字符串
+
+    环境变量：
+      KB_RUN_MODE=online|offline (默认 online)
+    """
+    mode = os.environ.get("KB_RUN_MODE", "online").lower()
+    if not command:
+        kb.log_warn("kb_exec: empty command")
+        return ""
+
+    if mode == "offline":
+        kb.log_warn(f"offline mode blocked command: {command}")
+        return ""
+
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout if timeout and timeout > 0 else None,
+        )
+        out = (proc.stdout or "") + (proc.stderr or "")
+        return out
+    except Exception as e:
+        kb.log_error(f"kb_exec failed: {e}")
+        return ""
+
+
+def kb_offline_log_dir() -> str:
+    """离线模式下的日志根目录（优先 sp_xxx/sf/log）"""
+    return os.environ.get("KB_OFFLINE_LOG_DIR", "")
+
+
+def kb_offline_hosts_json() -> str:
+    """离线模式下所有 host 的 JSON 数组（字符串）"""
+    return os.environ.get("KB_OFFLINE_HOSTS_JSON", "[]")
+
+
+def kb_offline_log_dirs_json() -> str:
+    """离线模式下所有日志根目录的 JSON 数组（字符串）"""
+    return os.environ.get("KB_OFFLINE_LOG_DIRS_JSON", "[]")
+
+
+def kb_offline_host() -> str:
+    """离线模式下默认 host"""
+    return os.environ.get("KB_OFFLINE_HOST", "")

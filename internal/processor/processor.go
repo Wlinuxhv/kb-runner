@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"kb-runnerx/internal/executor"
 	"kb-runnerx/pkg/config"
@@ -88,17 +89,26 @@ func (p *Processor) Process(execResults []*executor.ExecutionResult) (*result.Re
 		}
 
 		score := execResult.Score
+		var scriptResult *result.ScriptResult
 		if score == 0 && execResult.ResultJSON != "" {
-			var scriptResult result.ScriptResult
-			if err := json.Unmarshal([]byte(execResult.ResultJSON), &scriptResult); err == nil {
-				score = scriptResult.Score
+			var sr result.ScriptResult
+			if err := json.Unmarshal([]byte(execResult.ResultJSON), &sr); err == nil {
+				score = sr.Score
+				scriptResult = &sr
 			}
 		}
 
 		weight := p.cfg.GetScriptWeight(scriptName)
 		weightedScore := score * weight
 
-		matrix.AddScript(scriptName, score, weight, string(execResult.Status))
+		scriptScore := matrix.AddScript(scriptName, score, weight, string(execResult.Status))
+
+		// 保存详细的步骤和结果
+		if scriptResult != nil {
+			scriptScore.Steps = scriptResult.Steps
+			scriptScore.Results = scriptResult.Results
+		}
+
 		scores = append(scores, weightedScore)
 	}
 
@@ -162,17 +172,6 @@ func (p *Processor) GenerateReport(matrix *result.ResultMatrix) (string, error) 
 }
 
 func generateExecutionID() string {
-	return fmt.Sprintf("exec-%d", currentTime().UnixNano())
-}
-
-type TimeFunc func() interface{ UnixNano() int64 }
-
-func currentTime() interface{ UnixNano() int64 } {
-	return timeNow{}
-}
-
-type timeNow struct{}
-
-func (timeNow) UnixNano() int64 {
-	return 0
+	now := time.Now()
+	return fmt.Sprintf("exec-%d-%d", now.Unix(), now.UnixNano()%1000000)
 }

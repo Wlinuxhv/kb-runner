@@ -6,7 +6,15 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# 设置ICARE_LOG_ROOT环境变量指向工作目录中的ICare日志目录
+export ICARE_LOG_ROOT="${KB_OFFLINE_ICARE_LOG_ROOT:-$PROJECT_ROOT/workspace/icare_log/logall}"
+
+# 离线时使用框架注入的 Q 单号；在线/未注入时回退到脚本内置示例
+QNO="${KB_OFFLINE_QNO:-Q2026031201098}"
+OFF_HOST="${KB_OFFLINE_HOST:-}"
+
 source "$PROJECT_ROOT/scripts/bash/api.sh"
+source "$PROJECT_ROOT/scripts/bash/icare_log_api.sh"
 
 trap 'kb_save; echo "CASE执行异常中断"; exit 1' INT TERM
 
@@ -16,10 +24,34 @@ kb_init
 echo "执行步骤0：检查相关告警"
 step_start "检查相关告警"
 
-# 模拟告警查询，实际环境中可以使用log_db_search_alerts函数
-result "VM_SHUTDOWN_ALERT_COUNT" "0"
-result "HA_RECOVERY_ALERT_COUNT" "0"
-step_success "未发现相关告警"
+# 使用ICare日志适配器查询相关告警
+icare_log_init "$QNO"
+
+if [ "${KB_RUN_MODE:-online}" = "offline" ] && [ -n "$OFF_HOST" ]; then
+    icare_log_set_host "$OFF_HOST" >/dev/null 2>&1 || true
+fi
+
+# 搜索虚拟机关机相关告警
+vm_shutdown_alerts=$(icare_log_count_keyword "虚拟机内部关机")
+result "VM_SHUTDOWN_ALERT_COUNT" "$vm_shutdown_alerts"
+
+# 搜索HA恢复相关告警
+ha_recovery_alerts=$(icare_log_count_keyword "HA尝试恢复")
+result "HA_RECOVERY_ALERT_COUNT" "$ha_recovery_alerts"
+
+if [ "$vm_shutdown_alerts" -gt 0 ] || [ "$ha_recovery_alerts" -gt 0 ]; then
+    step_warning "发现虚拟机关机或HA恢复相关告警"
+else
+    step_success "未发现相关告警"
+fi
+
+# offline 模式下：仅基于 icare 日志适配器做分析，跳过 lscpu/sysfs/实时文件系统采集
+if [ "${KB_RUN_MODE:-online}" = "offline" ]; then
+    step_start "offline_rely_on_logs"
+    step_warning "offline mode: skip realtime commands/files; rely on collected icare logs"
+    kb_save
+    exit 0
+fi
 
 # 步骤1：检查平台类型
 echo "执行步骤1：检查平台类型"

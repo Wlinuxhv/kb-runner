@@ -1,9 +1,17 @@
 #!/bin/bash
 # 网络连通性检查脚本
 
-source ./scripts/bash/api.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/api.sh"
 
 kb_init
+
+if [ "${KB_RUN_MODE:-online}" = "offline" ]; then
+    step_start "offline_mode_skip"
+    step_warning "offline mode: skip real network commands (ping/nslookup/ip/etc), analyze logs instead"
+    kb_save
+    exit 0
+fi
 
 step_start "check_localhost"
 if ping -c 1 127.0.0.1 > /dev/null 2>&1; then

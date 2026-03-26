@@ -46,11 +46,11 @@ type ExecutionStatus struct {
 }
 
 type Engine struct {
-	cfg        *config.Config
-	log        *logger.Logger
-	registry   *adapter.Registry
-	tasks      map[string]*ExecutionStatus
-	mu         sync.RWMutex
+	cfg      *config.Config
+	log      *logger.Logger
+	registry *adapter.Registry
+	tasks    map[string]*ExecutionStatus
+	mu       sync.RWMutex
 }
 
 func NewEngine(cfg *config.Config, log *logger.Logger) *Engine {
@@ -253,5 +253,5 @@ func convertStatus(s result.ScriptStatus) Status {
 }
 
 func generateID() string {
-	return fmt.Sprintf("exec-%d", time.Now().UnixNano())
+	return fmt.Sprintf("exec-%d-%d", time.Now().Unix(), time.Now().UnixNano()%1000000)
 }
