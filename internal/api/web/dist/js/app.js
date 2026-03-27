@@ -401,31 +401,6 @@ async function showScriptDetail(scriptName) {
         alert('获取详情失败：' + error.message);
     }
 }
-
-    try {
-        const record = await apiRequest(`${API_BASE}/history/${currentResultId}`);
-        const result = record.result;
-        // 支持 script_name 或 name 字段
-        const script = (result.scripts || []).find(s => (s.script_name || s.name) === scriptName);
-
-        if (!script) {
-            alert('未找到脚本详情');
-            return;
-        }
-
-        currentExecutionDetail = {
-            record: record,
-            script: script,
-            caseName: scriptName || script.script_name || script.name
-        };
-
-        renderScriptDetail(currentExecutionDetail.caseName, script, result);
-        document.getElementById('detailModal').classList.add('active');
-    } catch (error) {
-        alert('获取详情失败: ' + error.message);
-    }
-}
-
 function renderScriptDetail(caseName, script, result) {
     const container = document.getElementById('detailContent');
 
