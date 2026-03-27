@@ -28,6 +28,7 @@ type Server struct {
 	caseMgr   *cases.Manager
 	scenarios *scenario.Manager
 	history   *HistoryManager
+	qresult   *QResultManager
 	processor *processor.Processor
 	router    *http.ServeMux
 	httpSrv   *http.Server
@@ -44,13 +45,25 @@ func NewServer(cfg *config.Config, log *logger.Logger) *Server {
 
 	caseMgr := cases.NewManager()
 	scenariosMgr := scenario.NewManager()
+	// 从 kbscript 目录加载 KB（优先）
+	kbscriptDir := cfg.Scripts.KBscriptDirectory
+	if kbscriptDir == "" {
+		kbscriptDir = "./kbscript"
+	}
+	if !filepath.IsAbs(kbscriptDir) {
+		kbscriptDir = filepath.Join(workDir, "../kbscript")
+	}
+	if _, err := os.Stat(kbscriptDir); err == nil {
+		if err := caseMgr.LoadFromDirectory(kbscriptDir); err != nil {
+			log.Error("Failed to load KBs from kbscript", "dir", kbscriptDir, "error", err)
+		} else {
+			log.Info("KBs loaded from kbscript", "dir", kbscriptDir)
+		}
+	}
 
-	// 加载cases和scenarios
+	// 同时从 cases 目录加载（向后兼容）
 	casesDir := filepath.Join(workDir, "cases")
 	if _, err := os.Stat(casesDir); err == nil {
-		if err := caseMgr.LoadFromDirectory(casesDir); err != nil {
-			log.Error("Failed to load cases", "error", err)
-		}
 	}
 
 	scenariosDir := filepath.Join(workDir, "scenarios")
@@ -67,6 +80,7 @@ func NewServer(cfg *config.Config, log *logger.Logger) *Server {
 		caseMgr:   caseMgr,
 		scenarios: scenariosMgr,
 		history:   NewHistoryManager(cfg),
+		qresult:   NewQResultManager(cfg.Execution.ResultRoot),
 		processor: processor.NewProcessor(cfg, log),
 		router:    http.NewServeMux(),
 		auth:      NewAuth(cfg.Server.Token),
@@ -122,8 +136,10 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("/api/v1/history/", s.handleHistoryDetail)
 	s.router.HandleFunc("/api/v1/health", s.handleHealth)
 
-	// 执行结果API
-	s.router.HandleFunc("/api/v1/execution/", s.handleExecutionDetail)
+	// 执行结果 API（新的 Q 单结果系统）
+	s.router.HandleFunc("/api/v1/executions", s.handleExecutions)
+	s.router.HandleFunc("/api/v1/executions/", s.handleExecutionDetail)
+	s.router.HandleFunc("/api/v1/qnos/", s.handleDeleteQNo)
 
 	// Skill/KB管理API - 使用统一的handler
 	s.router.HandleFunc("/api/v1/kb/", s.handleKB)
@@ -137,11 +153,18 @@ func (s *Server) setupRoutes() {
 
 	distFS, _ := fs.Sub(webFS, "web/dist")
 	staticHandler := http.FileServer(http.FS(distFS))
-
+	
+	// 添加缓存控制中间件，防止浏览器缓存静态文件
+	cacheControlHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		staticHandler.ServeHTTP(w, r)
+	})
 	if s.auth != nil {
-		s.router.Handle("/", s.auth.Middleware(staticHandler))
+		s.router.Handle("/", s.auth.Middleware(cacheControlHandler))
 	} else {
-		s.router.Handle("/", staticHandler)
+		s.router.Handle("/", cacheControlHandler)
 	}
 }
 

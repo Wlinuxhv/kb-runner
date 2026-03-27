@@ -363,33 +363,6 @@ func getStatusFromSummary(summary result.MatrixSummary) string {
 }
 
 // handleExecutionDetail 获取执行结果详情
-func (s *Server) handleExecutionDetail(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
-	// 提取execution ID
-	execID := strings.TrimPrefix(r.URL.Path, "/api/v1/execution/")
-	if execID == "" {
-		s.writeError(w, http.StatusBadRequest, "execution id required")
-		return
-	}
-
-	// 获取历史记录
-	record, err := s.history.Get(execID)
-	if err != nil {
-		s.writeError(w, http.StatusNotFound, "execution not found")
-		return
-	}
-
-	s.writeJSON(w, http.StatusOK, Response{
-		Success:   true,
-		Data:      record,
-		Timestamp: time.Now().Format(time.RFC3339),
-	})
-}
-
 // handleUserRole 获取当前用户角色
 func (s *Server) handleUserRole(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -518,4 +491,115 @@ func (s *Server) handleKB(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+func (s *Server) handleExecutions(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		entries, err := s.qresult.ListExecutions()
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		s.writeJSON(w, http.StatusOK, Response{
+			Success:   true,
+			Data:      entries,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+
+	case http.MethodDelete:
+		role := GetRole(r)
+		if role != "admin" {
+			s.writeError(w, http.StatusForbidden, "admin permission required")
+			return
+		}
+
+		if err := s.qresult.DeleteAll(); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		s.writeJSON(w, http.StatusOK, Response{
+			Success:   true,
+			Data:      "all executions deleted",
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Server) handleExecutionDetail(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/executions/")
+	if path == "" {
+		s.writeError(w, http.StatusBadRequest, "execution dir name required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		result, err := s.qresult.GetExecution(path)
+		if err != nil {
+			s.writeError(w, http.StatusNotFound, "execution not found")
+			return
+		}
+
+		s.writeJSON(w, http.StatusOK, Response{
+			Success:   true,
+			Data:      result,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+
+	case http.MethodDelete:
+		role := GetRole(r)
+		if role != "admin" {
+			s.writeError(w, http.StatusForbidden, "admin permission required")
+			return
+		}
+
+		if err := s.qresult.DeleteExecution(path); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		s.writeJSON(w, http.StatusOK, Response{
+			Success:   true,
+			Data:      "execution deleted",
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Server) handleDeleteQNo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	role := GetRole(r)
+	if role != "admin" {
+		s.writeError(w, http.StatusForbidden, "admin permission required")
+		return
+	}
+
+	qno := strings.TrimPrefix(r.URL.Path, "/api/v1/qnos/")
+	if qno == "" {
+		s.writeError(w, http.StatusBadRequest, "qno required")
+		return
+	}
+
+	if err := s.qresult.DeleteQNo(qno); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, Response{
+		Success:   true,
+		Data:      "qno executions deleted",
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
 }

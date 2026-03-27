@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skill - KB Runner</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/markdown.css">
+    <style>
+        body {
+            background: var(--background);
+            padding: 2rem;
+        }
+        .skill-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .skill-header {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+        }
+        .skill-header h1 {
+            font-family: 'Patrick Hand', cursive;
+            font-size: 1.8rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+        .case-info {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .case-info .tag {
+            background: rgba(255, 255, 255, 0.06);
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: var(--text-light);
+        }
+        .skill-body {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 2rem;
+            box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+            min-height: 400px;
+        }
+        .skill-footer {
+            margin-top: 1.5rem;
+            text-align: center;
+        }
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-light);
+        }
+        .error {
+            text-align: center;
+            padding: 2rem;
+            color: var(--failure);
+        }
+    </style>
+</head>
+<body>
+    <div class="skill-container">
+        <div class="skill-header">
+            <h1 id="caseTitle">加载中...</h1>
+            <div class="case-info" id="caseInfo"></div>
+        </div>
+        <div class="skill-body">
+            <div id="skillContent" class="markdown-body">
+                <div class="loading">正在加载Skill内容...</div>
+            </div>
+        </div>
+        <div class="skill-footer">
+            <a href="/" class="btn btn-primary">返回CASE列表</a>
+        </div>
+    </div>
+
+    <script>
+    // 简单的Markdown渲染器（无外部依赖）
+    function renderMarkdown(text) {
+        if (!text) return '<p>无内容</p>';
+
+        let html = text;
+
+        // 转义HTML特殊字符（先处理代码块防止转义）
+        html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        // 代码块 ```...```
+        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+
+        // 行内代码 `...`
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+        // 标题 # ## ### #### ##### ######
+        html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
+        html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
+        html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
+        html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+        html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+        html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+
+        // 粗体 **...** 或 __...__
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+
+        // 斜体 *...* 或 _..._
+        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+
+        // 删除线 ~~...~~
+        html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+        // 链接 [text](url)
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+        // 无序列表 - 或 *
+        html = html.replace(/^[\-\*]\s+(.+)$/gm, '<li>$1</li>');
+        html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+        // 有序列表 1. 2. 3.
+        html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
+
+        // 引用 > ...
+        html = html.replace(/^>\s+(.+)$/gm, '<blockquote>$1</blockquote>');
+
+        // 水平线 --- 或 *** 或 ___
+        html = html.replace(/^[\-\*_]{3,}$/gm, '<hr>');
+
+        // 表格（简单支持）
+        html = html.replace(/\|(.+)\|/g, function(match) {
+            let cells = match.split('|').filter(c => c.trim());
+            if (cells.some(c => c.match(/^[\-\:]+$/))) {
+                return ''; // 跳过表头分隔行
+            }
+            let row = cells.map(c => '<td>' + c.trim() + '</td>').join('');
+            return '<tr>' + row + '</tr>';
+        });
+        html = html.replace(/(<tr>.*<\/tr>\n?)+/g, '<table>$&</table>');
+
+        // 段落（双换行分隔）
+        html = html.replace(/\n\n/g, '</p><p>');
+        html = '<p>' + html + '</p>';
+
+        // 清理空段落
+        html = html.replace(/<p>\s*<\/p>/g, '');
+        html = html.replace(/<p>\s*(<h[1-6]>)/g, '$1');
+        html = html.replace(/(<\/h[1-6]>)\s*<\/p>/g, '$1');
+        html = html.replace(/<p>\s*(<ul>)/g, '$1');
+        html = html.replace(/(<\/ul>)\s*<\/p>/g, '$1');
+        html = html.replace(/<p>\s*(<ol>)/g, '$1');
+        html = html.replace(/(<\/ol>)\s*<\/p>/g, '$1');
+        html = html.replace(/<p>\s*(<pre>)/g, '$1');
+        html = html.replace(/(<\/pre>)\s*<\/p>/g, '$1');
+        html = html.replace(/<p>\s*(<table>)/g, '$1');
+        html = html.replace(/(<\/table>)\s*<\/p>/g, '$1');
+        html = html.replace(/<p>\s*(<blockquote>)/g, '$1');
+        html = html.replace(/(<\/blockquote>)\s*<\/p>/g, '$1');
+        html = html.replace(/<p>\s*(<hr>)/g, '$1');
+        html = html.replace(/(<hr>)\s*<\/p>/g, '$1');
+
+        return html;
+    }
+
+    // 获取URL参数中的caseName
+    const urlParams = new URLSearchParams(window.location.search);
+    let caseName = urlParams.get('case') || urlParams.get('name');
+
+    // 手动解码（浏览器已经解码了URL参数）
+    if (caseName) {
+        try {
+            caseName = decodeURIComponent(caseName);
+        } catch (e) {}
+    }
+
+    async function loadSkill() {
+        if (!caseName) {
+            document.getElementById('skillContent').innerHTML = '<div class="error">未指定CASE名称</div>';
+            return;
+        }
+
+        try {
+            // 获取CASE详情 - caseName已经是解码后的中文，需要URL编码
+            const caseResp = await fetch(`/api/v1/cases/${encodeURIComponent(caseName)}`);
+            const caseData = await caseResp.json();
+
+            if (caseData.success) {
+                const c = caseData.data;
+                document.getElementById('caseTitle').textContent = c.name || caseName;
+
+                let tagsHtml = c.category ? `<span class="tag">${c.category}</span>` : '';
+                if (c.tags && c.tags.length > 0) {
+                    tagsHtml += c.tags.map(t => `<span class="tag">${t}</span>`).join('');
+                }
+                document.getElementById('caseInfo').innerHTML = tagsHtml;
+            }
+
+            // 获取Skill内容
+            const skillResp = await fetch(`/api/v1/kb/${encodeURIComponent(caseName)}/skill`);
+            const skillData = await skillResp.json();
+
+            if (skillData.success) {
+                // 使用内置渲染器渲染Markdown
+                const html = renderMarkdown(skillData.data.content || '无内容');
+                document.getElementById('skillContent').innerHTML = html;
+            } else {
+                document.getElementById('skillContent').innerHTML = `<div class="error">${skillData.error || '无法加载Skill内容'}</div>`;
+            }
+        } catch (error) {
+            console.error('加载失败:', error);
+            document.getElementById('skillContent').innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+        }
+    }
+
+    loadSkill();
+    </script>
+</body>
+</html>

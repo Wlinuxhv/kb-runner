@@ -621,14 +621,17 @@ func runScripts(cmd *cobra.Command, args []string) error {
 			resultRoot = resultDir
 		}
 
-		// 直接使用 resultRoot 作为 Q 单号目录，不再创建子目录
-		// 格式：~/kb-runner/workspace/results/Q2026031700281/
-		resultQNoDir := resultRoot
+		// 目录格式：Q{单号}-{时间戳}
+		// 例如：Q2026031700281-20260327094611
+		timestamp := time.Now().Format("20060102150405")
+		qnoDirName := fmt.Sprintf("%s-%s", targetQNo, timestamp)
+		resultQNoDir := filepath.Join(resultRoot, qnoDirName)
 
 		// 确保目录存在
 		if err := os.MkdirAll(resultQNoDir, 0755); err != nil {
 			log.Warn("Failed to create result directory", "error", err)
 		} else {
+			log.Info("Result directory created", "dir", resultQNoDir)
 			// 保存单个 KB 结果
 			for _, script := range matrix.Scripts {
 				// 从 script.Name 或 script.Results 中提取真实的 KB ID
@@ -659,16 +662,15 @@ func runScripts(cmd *cobra.Command, args []string) error {
 					continue
 				}
 
-				// 直接保存到 Q 单号目录，不再创建子目录
-				filepath := filepath.Join(resultQNoDir, filename)
-				if err := os.WriteFile(filepath, data, 0644); err != nil {
-					log.Warn("Failed to save single result", "error", err, "file", filepath)
+				filePath := filepath.Join(resultQNoDir, filename)
+				if err := os.WriteFile(filePath, data, 0644); err != nil {
+					log.Warn("Failed to save single result", "error", err, "file", filePath)
 				} else {
-					log.Info("Result saved", "file", filepath, "kb_id", kbID)
+					log.Info("Result saved", "file", filePath, "kb_id", kbID)
 				}
 			}
 
-			// 保存排名文件
+			// 保存排名文件（文件名只包含 exec_id，不包含时间戳）
 			rankedFilename := fmt.Sprintf("ranked_results_%s.json", matrix.ExecutionID)
 			rankedData, err := json.MarshalIndent(matrix, "", "  ")
 			if err != nil {

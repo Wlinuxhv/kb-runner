@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KB Runner</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header>
+        <h1 class="logo">KB Runner</h1>
+        <nav>
+            <a href="#" onclick="showPage('kb')" class="nav-link active" data-page="kb">KB 列表</a>
+            <a href="#" onclick="showPage('scenarios')" class="nav-link" data-page="scenarios">场景列表</a>
+            <a href="#" onclick="showPage('history')" class="nav-link" data-page="history">执行历史</a>
+        </nav>
+    </header>
+
+    <main>
+        <!-- KB 列表页面 -->
+        <div id="page-kb" class="page active">
+            <div class="toolbar">
+                <select id="categoryFilter" onchange="filterKBs()">
+                    <option value="">全部分类</option>
+                </select>
+                <input type="text" id="searchInput" placeholder="搜索 KB..." oninput="filterKBs()">
+                <button class="btn btn-primary" onclick="executeSelected()">执行选中</button>
+            </div>
+            <div id="kbList" class="card-grid"></div>
+        </div>
+            <div id="caseList" class="card-grid"></div>
+        </div>
+
+        <!-- 场景列表页面 -->
+        <div id="page-scenarios" class="page">
+            <div id="scenarioList" class="card-grid"></div>
+        </div>
+
+        <!-- 执行历史页面 -->
+        <div id="page-history" class="page">
+            <div class="toolbar">
+                <select id="qnoFilter" onchange="filterExecutions()">
+                    <option value="">全部 Q 单</option>
+                </select>
+                <button class="btn btn-danger" onclick="confirmClearAll()">清除全部历史</button>
+            </div>
+            
+            <!-- 执行列表视图（默认） -->
+            <div id="executionList" class="execution-grid"></div>
+            
+            <!-- 执行详情视图（点击后显示） -->
+            <div id="executionDetail" class="execution-detail" style="display:none;">
+                <div class="detail-header">
+                    <button class="btn" onclick="backToList()">← 返回列表</button>
+                    <h3 id="detailTitle"></h3>
+                    <button class="btn btn-danger" onclick="showDeleteExecutionFromDetail()">删除此记录</button>
+                </div>
+                <div id="detailContent"></div>
+            </div>
+        </div>
+
+        <!-- 删除确认弹窗 -->
+        <div id="deleteModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>确认删除</h2>
+                    <span class="close" onclick="closeDeleteModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p id="deleteMessage"></p>
+                    <p class="delete-warning">此操作不可恢复！请输入 <strong>DELETE</strong> 确认删除：</p>
+                    <input type="text" id="deleteConfirm" placeholder="输入 DELETE 确认" autocomplete="off" />
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" onclick="closeDeleteModal()">取消</button>
+                    <button class="btn btn-danger" onclick="confirmDelete()">确认删除</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 执行结果弹窗 -->
+        <div id="resultModal" class="modal">
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>执行结果</h2>
+                    <span class="close" onclick="closeModal()">&times;</span>
+                </div>
+                <div id="resultContent"></div>
+                <div class="modal-footer">
+                    <button class="btn" onclick="exportResult('json')">导出JSON</button>
+                    <button class="btn" onclick="exportResult('yaml')">导出YAML</button>
+                    <button class="btn btn-primary" onclick="closeModal()">关闭</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 执行详情弹窗 -->
+        <div id="detailModal" class="modal">
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>执行详情</h2>
+                    <span class="close" onclick="closeDetailModal()">&times;</span>
+                </div>
+                <div id="detailContent"></div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" onclick="closeDetailModal()">关闭</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Skill编辑弹窗 -->
+        <div id="skillModal" class="modal">
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>编辑Skill</h2>
+                    <span class="close" onclick="closeSkillModal()">&times;</span>
+                </div>
+                <div id="skillContent"></div>
+                <div class="modal-footer">
+                    <button class="btn" onclick="showSkillHistory()">版本历史</button>
+                    <button class="btn btn-primary" onclick="saveSkill()">保存</button>
+                    <button class="btn" onclick="closeSkillModal()">取消</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>KB Runner v1.0 | Made with &#10084;</p>
+    </footer>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>
