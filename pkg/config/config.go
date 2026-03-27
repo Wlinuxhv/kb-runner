@@ -3,6 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -36,25 +39,33 @@ type ExecutionConfig struct {
 	TempDir     string            `mapstructure:"temp_dir"`
 	EnvVars     map[string]string `mapstructure:"env_vars"`
 
-	// 新增字段
-	LogRoot          string   `mapstructure:"log_root"`
-	ResultRoot       string   `mapstructure:"result_root"`
+	// 日志和结果配置
+	LogRoot           string `mapstructure:"log_root"`
+	LogPassword       string `mapstructure:"log_password"`
+	ResultRoot        string `mapstructure:"result_root"`
+	KBscriptDirectory string `mapstructure:"kbscript_directory"`
+
+	// 其他配置
 	KBDirectories    []string `mapstructure:"kb_directories"`
 	DefaultQNo       string   `mapstructure:"default_qno"`
 	MaxResultRecords int      `mapstructure:"max_result_records"`
 }
 
 type ScriptsConfig struct {
-	Directory         string   `mapstructure:"directory"`
-	KBscriptDirectory string   `mapstructure:"kbscript_directory"`
-	AllowedLanguages  []string `mapstructure:"allowed_languages"`
-	MaxSize           string   `mapstructure:"max_size"`
+	Directory           string   `mapstructure:"directory"`
+	KBscriptDirectory   string   `mapstructure:"kbscript_directory"`
+	EmbeddedKBEnabled   bool     `mapstructure:"embedded_kb_enabled"`
+	EmbeddedKBSourceDir string   `mapstructure:"embedded_kb_source_dir"`
+	AllowedLanguages    []string `mapstructure:"allowed_languages"`
+	MaxSize             string   `mapstructure:"max_size"`
 }
 
 type LoggingConfig struct {
-	Level  string       `mapstructure:"level"`
-	Format string       `mapstructure:"format"`
-	Output OutputConfig `mapstructure:"output"`
+	Level       string       `mapstructure:"level"`
+	Format      string       `mapstructure:"format"`
+	Output      OutputConfig `mapstructure:"output"`
+	MaxSizeMB   int          `mapstructure:"max_size_mb"`
+	CompressOld bool         `mapstructure:"compress_old"`
 }
 
 type OutputConfig struct {
@@ -108,33 +119,39 @@ func DefaultConfig() *Config {
 			ShutdownTimeout: 10 * time.Second,
 		},
 		Execution: ExecutionConfig{
-			Timeout:          300 * time.Second,
-			MaxParallel:      1,
-			WorkDir:          "/data/kb-runner/workspace",
-			TempDir:          "/data/kb-runner/temp",
-			EnvVars:          make(map[string]string),
-			LogRoot:          "/data/kb-runner/workspace",
-			ResultRoot:       "~/kb-runner/workspace/results",
-			KBDirectories:    []string{"./kbscript"},
-			DefaultQNo:       "",
-			MaxResultRecords: 100,
+			Timeout:           300 * time.Second,
+			MaxParallel:       1,
+			WorkDir:           "/data/kb-runner/workspace",
+			TempDir:           "/data/kb-runner/temp",
+			EnvVars:           make(map[string]string),
+			LogRoot:           "/data/kb-runner/workspace/icare_log/logall",
+			LogPassword:       "sangfor.vt@aDeploy2019",
+			ResultRoot:        "~/kb-runner/workspace/results",
+			KBscriptDirectory: "~/kb-runner/workspace/kbscripts",
+			KBDirectories:     []string{},
+			DefaultQNo:        "",
+			MaxResultRecords:  100,
 		},
 		Scripts: ScriptsConfig{
-			Directory:         "./scripts",
-			KBscriptDirectory: "./kbscript",
-			AllowedLanguages:  []string{"bash", "python"},
-			MaxSize:           "10MB",
+			Directory:           "./scripts",
+			KBscriptDirectory:   "~/kb-runner/workspace/kbscripts",
+			EmbeddedKBEnabled:   true,
+			EmbeddedKBSourceDir: "./kbscripts",
+			AllowedLanguages:    []string{"bash", "python"},
+			MaxSize:             "10MB",
 		},
 		Logging: LoggingConfig{
 			Level:  "info",
 			Format: "json",
 			Output: OutputConfig{
 				Type:       "file",
-				Path:       "/data/kb-runner/logs/kb-runner.log",
-				MaxSize:    "100MB",
+				Path:       "~/kb-runner/workspace/logs/kb-runner-{pid}.log",
+				MaxSize:    "10MB",
 				MaxBackups: 10,
 				MaxAge:     30,
 			},
+			MaxSizeMB:   10,
+			CompressOld: true,
 		},
 		Weights: WeightsConfig{
 			DefaultScriptWeight: 1.0,
@@ -293,4 +310,52 @@ func (c *Config) GetKBDirectories() []string {
 
 func (c *Config) GetArchivePassword() string {
 	return c.Archive.Password
+}
+
+func (c *Config) GetKBScriptDirectory() string {
+	path := c.Scripts.KBscriptDirectory
+	return ExpandTilde(path)
+}
+
+func (c *ExecutionConfig) GetLogRoot() string {
+	return ExpandTilde(c.LogRoot)
+}
+
+func (c *ExecutionConfig) GetLogPassword() string {
+	if c.LogPassword == "" {
+		return "sangfor.vt@aDeploy2019"
+	}
+	return c.LogPassword
+}
+
+func (c *ExecutionConfig) GetResultRoot() string {
+	return ExpandTilde(c.ResultRoot)
+}
+
+func (c *ExecutionConfig) GetKBscriptDirectory() string {
+	return ExpandTilde(c.KBscriptDirectory)
+}
+
+func (c *ScriptsConfig) GetKBscriptDirectory() string {
+	return ExpandTilde(c.KBscriptDirectory)
+}
+
+// ExpandTilde 展开 ~ 路径
+func ExpandTilde(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home := os.Getenv("HOME")
+		if home != "" {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	if !filepath.IsAbs(path) {
+		execDir, _ := os.Getwd()
+		return filepath.Join(execDir, path)
+	}
+	return path
+}
+
+// ExpandPID 展开 {pid} 占位符
+func ExpandPID(path string, pid int) string {
+	return strings.ReplaceAll(path, "{pid}", strconv.Itoa(pid))
 }

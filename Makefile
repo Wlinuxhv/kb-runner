@@ -1,15 +1,19 @@
-.PHONY: all clean build build-linux build-windows build-darwin test help
+.PHONY: all clean build build-linux build-windows build-darwin test help embed-kbscripts
 
 BINARY_NAME=kb-runner
 VERSION:=$(shell git describe --tags --always --dirty)
 BUILD_TIME:=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
 
+# Embedded KB scripts directory
+EMBED_KB_DIR := internal/kbscripts
+KB_SCRIPTS_DIR := kbscript
+
 # Default target
-all: build
+all: embed-kbscripts build
 
 # Build for current platform
-build: build-linux
+build: embed-kbscripts build-linux
 
 # Build for Linux
 build-linux:
@@ -58,6 +62,13 @@ release: build-all
 	cp -r scripts release/
 	@echo "Release package created in release/"
 
+# Embed KB scripts
+embed-kbscripts:
+	@echo "Embedding KB scripts..."
+	@mkdir -p $(EMBED_KB_DIR)
+	@cp -r $(KB_SCRIPTS_DIR)/* $(EMBED_KB_DIR)/ 2>/dev/null || true
+	@echo "KB scripts embedded successfully to $(EMBED_KB_DIR)"
+
 # Help
 help:
 	@echo "KB Runner Build System"
@@ -71,4 +82,5 @@ help:
 	@echo "  release      Create release package with all binaries"
 	@echo "  test         Run tests"
 	@echo "  clean        Clean build artifacts"
+	@echo "  embed-kbscripts  Embed KB scripts into binary"
 	@echo "  help         Show this help message"

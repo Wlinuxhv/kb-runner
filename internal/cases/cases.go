@@ -1,6 +1,7 @@
 package cases
 
 import (
+	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,7 +48,7 @@ func (m *Manager) LoadFromFile(path string) error {
 	}
 
 	var file struct {
-		Cases []*Case `yaml:"cases"`
+		Cases      []*Case `yaml:"cases"`
 		Categories []struct {
 			Name        string `yaml:"name"`
 			Description string `yaml:"description"`
@@ -87,6 +88,10 @@ func (m *Manager) LoadFromDirectory(dir string) error {
 	return m.loadFromDirectoryRecursive(dir)
 }
 
+func (m *Manager) LoadFromEmbedFS(fs embed.FS, dir string) error {
+	return m.loadFromEmbedFSRecursive(fs, dir)
+}
+
 func (m *Manager) loadFromDirectoryRecursive(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -104,6 +109,32 @@ func (m *Manager) loadFromDirectoryRecursive(dir string) error {
 			if entry.Name() == "case.yaml" || entry.Name() == "case.yml" {
 				caseDir := filepath.Dir(filepath.Join(dir, entry.Name()))
 				if err := m.loadCaseFromDirectory(caseDir); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (m *Manager) loadFromEmbedFSRecursive(fs embed.FS, dir string) error {
+	entries, err := fs.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("failed to read directory from embed FS: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			// 递归处理子目录
+			if err := m.loadFromEmbedFSRecursive(fs, filepath.Join(dir, entry.Name())); err != nil {
+				return err
+			}
+		} else {
+			// 检查是否为case.yaml文件
+			if entry.Name() == "case.yaml" || entry.Name() == "case.yml" {
+				caseDir := filepath.Dir(filepath.Join(dir, entry.Name()))
+				if err := m.loadCaseFromEmbedFSDirectory(fs, caseDir); err != nil {
 					return err
 				}
 			}
@@ -167,6 +198,76 @@ func (m *Manager) loadCaseFromDirectory(caseDir string) error {
 			// 尝试使用目录名作为脚本名
 			scriptPath = filepath.Join(caseDir, filepath.Base(caseDir)+scriptExt)
 			if _, err := os.Stat(scriptPath); err == nil {
+				c.Path = scriptPath
+			} else {
+				return fmt.Errorf("no script file found for case %s", c.Name)
+			}
+		}
+	}
+
+	// 验证CASE
+	if err := c.Validate(); err != nil {
+		return err
+	}
+
+	// 添加到管理器
+	return m.Add(&c)
+}
+
+func (m *Manager) loadCaseFromEmbedFSDirectory(fs embed.FS, caseDir string) error {
+	// 读取case.yaml文件
+	caseYamlPath := filepath.Join(caseDir, "case.yaml")
+	if !fileExistsInFS(fs, caseYamlPath) {
+		caseYamlPath = filepath.Join(caseDir, "case.yml")
+		if !fileExistsInFS(fs, caseYamlPath) {
+			return nil // 没有case.yaml文件，跳过
+		}
+	}
+
+	// 读取配置文件
+	data, err := fs.ReadFile(caseYamlPath)
+	if err != nil {
+		return fmt.Errorf("failed to read case.yaml from embed FS: %w", err)
+	}
+
+	var c Case
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		return fmt.Errorf("failed to unmarshal case.yaml: %w", err)
+	}
+
+	// 设置默认值
+	if c.Name == "" {
+		c.Name = filepath.Base(caseDir)
+	}
+	if c.Timeout == 0 {
+		c.Timeout = 300 * time.Second
+	}
+	if c.Weight == 0 {
+		c.Weight = 1.0
+	}
+	if c.Params == nil {
+		c.Params = make(map[string]string)
+	}
+	if c.Tags == nil {
+		c.Tags = []string{}
+	}
+	if c.Language == "" {
+		c.Language = "bash"
+	}
+
+	// 自动设置脚本路径
+	if c.Path == "" {
+		scriptExt := ".sh"
+		if c.Language == "python" {
+			scriptExt = ".py"
+		}
+		scriptPath := filepath.Join(caseDir, "run"+scriptExt)
+		if fileExistsInFS(fs, scriptPath) {
+			c.Path = scriptPath
+		} else {
+			// 尝试使用目录名作为脚本名
+			scriptPath = filepath.Join(caseDir, filepath.Base(caseDir)+scriptExt)
+			if fileExistsInFS(fs, scriptPath) {
 				c.Path = scriptPath
 			} else {
 				return fmt.Errorf("no script file found for case %s", c.Name)
@@ -326,4 +427,10 @@ func (c *Case) Validate() error {
 
 func (c *Case) ToJSON() ([]byte, error) {
 	return yaml.Marshal(c)
+}
+
+// fileExistsInFS 检查嵌入文件系统中的文件是否存在
+func fileExistsInFS(fs embed.FS, path string) bool {
+	_, err := fs.Open(path)
+	return err == nil
 }
