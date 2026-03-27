@@ -16,7 +16,7 @@ fail=0
 
 # 1. API 测试
 echo "=== 1. API 接口测试 ==="
-./test_api.sh
+./test/test_api.sh
 if [ $? -eq 0 ]; then
     ((pass++))
 else
@@ -26,7 +26,7 @@ echo ""
 
 # 2. 前端测试
 echo "=== 2. 前端资源测试 ==="
-./test_frontend.sh
+./test/test_frontend.sh
 if [ $? -eq 0 ]; then
     ((pass++))
 else
