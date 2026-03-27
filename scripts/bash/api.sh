@@ -22,6 +22,15 @@ KB_LOG_LEVEL="${KB_LOG_LEVEL:-INFO}"
 KB_CONFIG_FILE="${KB_CONFIG_FILE:-}"
 KB_MAX_SCORE="${KB_MAX_SCORE:-100.0}"
 
+# Offline 模式配置（由框架注入）
+KB_RUN_MODE="${KB_RUN_MODE:-online}"
+KB_OFFLINE_QNO="${KB_OFFLINE_QNO:-}"
+KB_OFFLINE_ICARE_LOG_ROOT="${KB_OFFLINE_ICARE_LOG_ROOT:-}"
+KB_OFFLINE_HOST="${KB_OFFLINE_HOST:-}"
+KB_OFFLINE_HOSTS_JSON="${KB_OFFLINE_HOSTS_JSON:-[]}"
+KB_OFFLINE_LOG_DIR="${KB_OFFLINE_LOG_DIR:-}"
+KB_OFFLINE_LOG_DIRS_JSON="${KB_OFFLINE_LOG_DIRS_JSON:-[]}"
+
 # 当前步骤信息
 KB_CURRENT_STEP=""
 KB_STEP_START_TIME=0
@@ -48,113 +57,110 @@ _kb_load_step_config() {
     KB_STEP_WEIGHT=1.0
     KB_STEP_EXPECTED_STATUS="success"
     
-    if command -v python3 &> /dev/null; then
-        local config_data
-        config_data=$(python3 << EOF
-import yaml
-import sys
-import json
-
-try:
-    with open('$KB_CONFIG_FILE', 'r') as f:
-        config = yaml.safe_load(f)
+    # 使用 grep 和 sed 解析 YAML 配置（避免 Python 依赖）
+    local in_step=false
     
-    steps = config.get('scoring', {}).get('steps', [])
-    for step in steps:
-        if step.get('name') == '$step_name':
-            result = {
-                'weight': step.get('weight', 1.0),
-                'expected_status': step.get('expected_status', 'success')
-            }
-            print(json.dumps(result))
-            sys.exit(0)
-    
-    print(json.dumps({'weight': 1.0, 'expected_status': 'success'}))
-except Exception as e:
-    print(json.dumps({'weight': 1.0, 'expected_status': 'success', 'error': str(e)}))
-EOF
-)
+    while IFS= read -r line; do
+        # 跳过注释和空行
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$line" ]] && continue
         
-        if [ -n "$config_data" ]; then
-            local weight
-            weight=$(echo "$config_data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('weight', 1.0))" 2>/dev/null)
-            local expected
-            expected=$(echo "$config_data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('expected_status', 'success'))" 2>/dev/null)
-            
-            if [ -n "$weight" ]; then
-                KB_STEP_WEIGHT="$weight"
+        # 检查是否进入步骤配置
+        if echo "$line" | grep -q "name:[[:space:]]*[\"']\?$step_name[\"']\?$"; then
+            in_step=true
+            continue
+        fi
+        
+        # 如果已找到步骤，读取权重和期望状态
+        if [ "$in_step" = true ]; then
+            # 检查是否离开当前步骤块
+            if echo "$line" | grep -q "^[[:space:]]*-[[:space:]]*name:"; then
+                break
             fi
-            if [ -n "$expected" ]; then
-                KB_STEP_EXPECTED_STATUS="$expected"
+            
+            # 读取 weight（排除注释）
+            if echo "$line" | grep -q "weight:"; then
+                KB_STEP_WEIGHT=$(echo "$line" | sed 's/.*weight:[[:space:]]*//' | sed 's/#.*//' | tr -d ' "')
+            fi
+            
+            # 读取 expected_status（排除注释）
+            if echo "$line" | grep -q "expected_status:"; then
+                KB_STEP_EXPECTED_STATUS=$(echo "$line" | sed 's/.*expected_status:[[:space:]]*//' | sed 's/#.*//' | tr -d ' "')
             fi
         fi
-    fi
+    done < "$KB_CONFIG_FILE"
 }
 
 # 计算得分
 _kb_calculate_score() {
-    if ! command -v python3 &> /dev/null || [ ! -f "$KB_RESULT_FILE" ]; then
+    if ! command -v jq &> /dev/null || [ ! -f "$KB_RESULT_FILE" ]; then
         echo "0"
         return
     fi
     
-    python3 << 'PYTHON_EOF'
-import json
-import os
-import yaml
-
-result_file = os.environ.get('KB_RESULT_FILE', '')
-config_file = os.environ.get('KB_CONFIG_FILE', '')
-max_score = float(os.environ.get('KB_MAX_SCORE', '100.0'))
-
-try:
-    with open(result_file, 'r') as f:
-        result = json.load(f)
-except:
-    print("0")
-    exit(0)
-
-steps = result.get('steps', [])
-if not steps:
-    print("0")
-    exit(0)
-
-config_steps = {}
-if config_file and os.path.exists(config_file):
-    try:
-        with open(config_file, 'r') as f:
-            config = yaml.safe_load(f)
-        for step in config.get('scoring', {}).get('steps', []):
-            config_steps[step.get('name')] = {
-                'weight': step.get('weight', 1.0),
-                'expected_status': step.get('expected_status', 'success')
-            }
-    except:
-        pass
-
-total_possible = 0
-total_earned = 0
-
-for step in steps:
-    step_name = step.get('name', '')
-    step_status = step.get('status', '')
+    local steps_count
+    steps_count=$(jq '.steps | length' "$KB_RESULT_FILE" 2>/dev/null || echo "0")
     
-    cfg = config_steps.get(step_name, {'weight': 1.0, 'expected_status': 'success'})
-    weight = cfg.get('weight', 1.0)
-    expected_status = cfg.get('expected_status', 'success')
+    if [ "$steps_count" -eq 0 ]; then
+        echo "0"
+        return
+    fi
     
-    total_possible += weight
+    local total_possible=0
+    local total_earned=0
     
-    if step_status == expected_status:
-        total_earned += weight
-
-if total_possible > 0:
-    raw_score = total_earned / total_possible
-    final_score = round(raw_score * max_score, 2)
-    print(final_score)
-else:
-    print("0")
-PYTHON_EOF
+    # 从配置文件中读取所有步骤的权重
+    declare -A step_weights
+    declare -A step_expected
+    
+    if [ -n "$KB_CONFIG_FILE" ] && [ -f "$KB_CONFIG_FILE" ]; then
+        # 解析 YAML 配置（简化版，假设配置格式规范）
+        local current_step=""
+        while IFS= read -r line; do
+            if echo "$line" | grep -q "^\s*- name:"; then
+                current_step=$(echo "$line" | sed 's/.*name:[[:space:]]*//' | tr -d '"')
+            elif [ -n "$current_step" ]; then
+                if echo "$line" | grep -q "weight:"; then
+                    local w=$(echo "$line" | sed 's/.*weight:[[:space:]]*//' | tr -d ' ')
+                    step_weights["$current_step"]="$w"
+                fi
+                if echo "$line" | grep -q "expected_status:"; then
+                    local e=$(echo "$line" | sed 's/.*expected_status:[[:space:]]*//' | tr -d ' "')
+                    step_expected["$current_step"]="$e"
+                fi
+            fi
+        done < "$KB_CONFIG_FILE"
+    fi
+    
+    # 遍历所有步骤计算得分
+    for ((i=0; i<steps_count; i++)); do
+        local step_name
+        step_name=$(jq -r ".steps[$i].name" "$KB_RESULT_FILE" 2>/dev/null)
+        local step_status
+        step_status=$(jq -r ".steps[$i].status" "$KB_RESULT_FILE" 2>/dev/null)
+        
+        # 获取配置的权重和期望状态
+        local weight="${step_weights[$step_name]:-1.0}"
+        local expected="${step_expected[$step_name]:-success}"
+        
+        # 使用 bc 进行浮点运算
+        total_possible=$(echo "$total_possible + $weight" | bc -l 2>/dev/null || echo "$total_possible")
+        
+        if [ "$step_status" = "$expected" ]; then
+            total_earned=$(echo "$total_earned + $weight" | bc -l 2>/dev/null || echo "$total_earned")
+        fi
+    done
+    
+    # 计算最终得分
+    if [ "$(echo "$total_possible > 0" | bc -l 2>/dev/null || echo "0")" -eq 1 ]; then
+        local raw_score
+        raw_score=$(echo "scale=4; $total_earned / $total_possible" | bc -l 2>/dev/null || echo "0")
+        local final_score
+        final_score=$(echo "scale=2; $raw_score * $KB_MAX_SCORE" | bc -l 2>/dev/null || echo "0")
+        echo "$final_score"
+    else
+        echo "0"
+    fi
 }
 
 # 日志级别检查
@@ -229,7 +235,8 @@ EOF
     if command -v jq &> /dev/null; then
         local tmp_file
         tmp_file=$(mktemp)
-        jq ".steps += [$step_json]" "$KB_RESULT_FILE" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$KB_RESULT_FILE"
+        # 使用 --argjson 传递 JSON 对象，避免字符串转义问题
+        jq --argjson step "$step_json" '.steps += [$step]' "$KB_RESULT_FILE" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$KB_RESULT_FILE"
     fi
     
     _kb_log "$KB_LOG_INFO" "步骤结束：$KB_CURRENT_STEP ($status, ${duration_ms}ms, score: $step_score/$step_max_score)"
@@ -257,44 +264,29 @@ kb_save() {
         _kb_end_step "$KB_STATUS_WARNING" "步骤未正确关闭"
     fi
     
-    if command -v python3 &> /dev/null && [ -f "$KB_RESULT_FILE" ]; then
-        python3 << 'PYTHON_EOF'
-import json
-import os
-
-result_file = os.environ.get('KB_RESULT_FILE', '')
-max_score = float(os.environ.get('KB_MAX_SCORE', '100.0'))
-
-try:
-    with open(result_file, 'r') as f:
-        result = json.load(f)
-except Exception as e:
-    print(f"Error reading result file: {e}")
-    exit(1)
-
-steps = result.get('steps', [])
-failure_count = sum(1 for s in steps if s.get('status') == 'failure')
-
-total_possible = sum(s.get('max_score', 1.0) for s in steps)
-total_earned = sum(s.get('score', 0.0) for s in steps)
-
-if total_possible > 0:
-    final_score = round((total_earned / total_possible) * max_score, 2)
-else:
-    final_score = 0.0
-
-status = 'failure' if failure_count > 0 else 'success'
-
-result['score'] = final_score
-result['max_score'] = max_score
-result['status'] = status
-result['final_score'] = final_score
-
-with open(result_file, 'w', encoding='utf-8') as f:
-    json.dump(result, f, ensure_ascii=False, indent=2)
-
-print(f"KB 执行完成：status={status}, score={final_score}/{max_score}")
-PYTHON_EOF
+    if command -v jq &> /dev/null && [ -f "$KB_RESULT_FILE" ]; then
+        local final_score=0
+        final_score=$(_kb_calculate_score)
+        
+        # 统计失败步骤数量
+        local failure_count
+        failure_count=$(jq '[.steps[].status | select(. == "failure")] | length' "$KB_RESULT_FILE" 2>/dev/null || echo "0")
+        
+        local status="success"
+        if [ "$failure_count" -gt 0 ]; then
+            status="failure"
+        fi
+        
+        # 更新结果文件
+        local tmp_file
+        tmp_file=$(mktemp)
+        jq --argjson score "$final_score" \
+           --arg status "$status" \
+           --argjson max_score "$KB_MAX_SCORE" \
+           '.score = $score | .status = $status | .max_score = $max_score | .final_score = $score' \
+           "$KB_RESULT_FILE" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$KB_RESULT_FILE"
+        
+        echo "KB 执行完成：status=$status, score=$final_score/$KB_MAX_SCORE"
     fi
     
     _kb_log "$KB_LOG_INFO" "脚本执行完成"
@@ -447,4 +439,95 @@ kb_exec() {
     fi
 
     eval "$cmd"
+}
+
+# ========== 帮助函数 ==========
+
+# 显示 KB 脚本帮助信息
+kb_help() {
+    cat << EOF
+KB 脚本执行框架 - Bash API 帮助
+
+使用方法:
+    source \$PROJECT_ROOT/scripts/bash/api.sh
+    
+    kb_init                              # 初始化
+    step_start "步骤名称"                 # 开始步骤
+    result "key" "value"                 # 记录结果
+    step_success "成功消息"               # 步骤成功
+    kb_save                              # 保存结果
+
+环境变量（由框架自动注入）:
+    基本配置:
+        KB_RESULT_FILE          - 结果文件路径
+        KB_LOG_FILE             - 日志文件路径
+        KB_SCRIPT_NAME          - 脚本名称
+        KB_CONFIG_FILE          - 配置文件路径
+        KB_MAX_SCORE            - 满分分数（默认 100.0）
+    
+    Offline 模式:
+        KB_RUN_MODE             - 运行模式 (online/offline)
+        KB_OFFLINE_QNO          - Q 单号
+        KB_OFFLINE_ICARE_LOG_ROOT - ICare 日志根目录
+        KB_OFFLINE_HOST         - 当前主机
+        KB_OFFLINE_LOG_DIR      - 日志目录
+    
+    步骤配置:
+        KB_STEP_WEIGHT          - 当前步骤权重
+        KB_STEP_EXPECTED_STATUS - 当前步骤期望状态
+
+API 函数:
+    初始化:
+        kb_init()               - 初始化结果文件
+        kb_save()               - 保存最终结果
+    
+    日志:
+        log_debug "消息"         - DEBUG 级别日志
+        log_info "消息"          - INFO 级别日志
+        log_warn "消息"          - WARN 级别日志
+        log_error "消息"         - ERROR 级别日志
+    
+    步骤:
+        step_start "名称"        - 开始步骤
+        step_success "消息"      - 步骤成功
+        step_failure "消息"      - 步骤失败
+        step_warning "消息"      - 步骤警告
+        step_skip "消息"         - 跳过步骤
+        step_info "消息"         - 步骤信息（按成功计）
+        step_output "内容"       - 设置步骤输出
+    
+    结果:
+        result "key" "value"     - 记录键值对结果
+    
+    Offline:
+        kb_offline_log_dir()     - 获取日志目录
+        kb_offline_host()        - 获取当前主机
+        kb_offline_hosts_json()  - 获取主机列表 JSON
+        kb_offline_log_dirs_json() - 获取日志目录列表 JSON
+    
+    受控执行:
+        kb_exec "命令"           - 受控执行命令（offline 模式禁止）
+
+示例:
+    #!/bin/bash
+    source "\$PROJECT_ROOT/scripts/bash/api.sh"
+    
+    kb_init
+    
+    step_start "检查环境"
+    if [ -f "/etc/os-release" ]; then
+        result "os" "linux"
+        step_success "环境检查通过"
+    else
+        step_failure "环境检查失败"
+    fi
+    
+    kb_save
+
+EOF
+}
+
+# 显示版本信息
+kb_version() {
+    echo "KB Runner Bash API v1.0.0"
 }

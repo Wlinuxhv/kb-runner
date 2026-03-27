@@ -1,0 +1,60 @@
+# KB Runner 默认配置文件
+# 首次运行时自动析出到此位置
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  token: ""  # 建议设置强 token
+  read_timeout: 30s
+  write_timeout: 30s
+  shutdown_timeout: 10s
+
+execution:
+  timeout: 300s
+  max_parallel: 1
+  work_dir: "/data/kb-runner/workspace"
+  temp_dir: "/data/kb-runner/temp"
+  
+  # 日志包配置
+  log_root: "/data/kb-runner/workspace"
+  default_qno: ""
+  
+  # 结果文件配置
+  result_root: "~/kb-runner/workspace/results"
+  max_result_records: 100
+  
+  # KB 脚本配置
+  kb_directories:
+    - "./kbscript"
+  
+  env_vars:
+    KB_API_PATH: "./scripts"
+
+archive:
+  # 日志包默认密码
+  password: "sangfor.vt@aDeploy2019"
+
+scripts:
+  directory: "./scripts"
+  kbscript_directory: "./kbscript"
+  allowed_languages:
+    - bash
+    - python
+  max_size: "10MB"
+
+logging:
+  level: "info"
+  format: "json"
+  output:
+    type: "file"
+    path: "/data/kb-runner/logs/kb-runner.log"
+    max_size: "100MB"
+    max_backups: 10
+    max_age: 30
+
+backend:
+  url: ""
+  timeout: 30s
+  retry:
+    max_attempts: 3
+    wait_time: 1s

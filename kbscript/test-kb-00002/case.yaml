@@ -1,0 +1,23 @@
+name: test-kb-00002
+language: bash
+category: default
+tags:
+  - default
+description: TODO: 在这里填写 KB 的描述信息
+timeout: 300s
+weight: 1.0
+params:
+  kb_id: "00000"
+
+scoring:
+  max_score: 100.0
+  steps:
+    - name: "检查相关告警"
+      weight: 0.3
+      expected_status: "success"
+    - name: "检查配置"
+      weight: 0.3
+      expected_status: "success"
+    - name: "结果分析"
+      weight: 0.4
+      expected_status: "success"

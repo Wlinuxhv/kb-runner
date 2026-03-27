@@ -176,13 +176,14 @@ type ScriptScore struct {
 }
 
 type MatrixSummary struct {
-	TotalScripts     int     `json:"total_scripts"`
-	SuccessCount     int     `json:"success_count"`
-	FailureCount     int     `json:"failure_count"`
-	WarningCount     int     `json:"warning_count"`
-	AverageScore     float64 `json:"average_score"`
-	WeightedAverage  float64 `json:"weighted_average"`
-	MaxPossibleScore float64 `json:"max_possible_score,omitempty"`
+	TotalScripts     int                    `json:"total_scripts"`
+	SuccessCount     int                    `json:"success_count"`
+	FailureCount     int                    `json:"failure_count"`
+	WarningCount     int                    `json:"warning_count"`
+	AverageScore     float64                `json:"average_score"`
+	WeightedAverage  float64                `json:"weighted_average"`
+	MaxPossibleScore float64                `json:"max_possible_score,omitempty"`
+	Extensions       map[string]interface{} `json:"extensions,omitempty"`
 }
 
 type RankedResult struct {

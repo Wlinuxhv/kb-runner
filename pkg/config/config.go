@@ -17,6 +17,7 @@ type Config struct {
 	Weights   WeightsConfig   `mapstructure:"weights"`
 	Backend   BackendConfig   `mapstructure:"backend"`
 	History   HistoryConfig   `mapstructure:"history"`
+	Archive   ArchiveConfig   `mapstructure:"archive"`
 }
 
 type ServerConfig struct {
@@ -29,23 +30,30 @@ type ServerConfig struct {
 }
 
 type ExecutionConfig struct {
-	Timeout     time.Duration `mapstructure:"timeout"`
-	MaxParallel int           `mapstructure:"max_parallel"`
-	WorkDir     string        `mapstructure:"work_dir"`
-	TempDir     string        `mapstructure:"temp_dir"`
+	Timeout     time.Duration     `mapstructure:"timeout"`
+	MaxParallel int               `mapstructure:"max_parallel"`
+	WorkDir     string            `mapstructure:"work_dir"`
+	TempDir     string            `mapstructure:"temp_dir"`
 	EnvVars     map[string]string `mapstructure:"env_vars"`
+
+	// 新增字段
+	LogRoot          string   `mapstructure:"log_root"`
+	ResultRoot       string   `mapstructure:"result_root"`
+	KBDirectories    []string `mapstructure:"kb_directories"`
+	DefaultQNo       string   `mapstructure:"default_qno"`
+	MaxResultRecords int      `mapstructure:"max_result_records"`
 }
 
 type ScriptsConfig struct {
-	Directory          string   `mapstructure:"directory"`
-	KBscriptDirectory  string   `mapstructure:"kbscript_directory"`
-	AllowedLanguages   []string `mapstructure:"allowed_languages"`
-	MaxSize            string   `mapstructure:"max_size"`
+	Directory         string   `mapstructure:"directory"`
+	KBscriptDirectory string   `mapstructure:"kbscript_directory"`
+	AllowedLanguages  []string `mapstructure:"allowed_languages"`
+	MaxSize           string   `mapstructure:"max_size"`
 }
 
 type LoggingConfig struct {
-	Level  string      `mapstructure:"level"`
-	Format string      `mapstructure:"format"`
+	Level  string       `mapstructure:"level"`
+	Format string       `mapstructure:"format"`
 	Output OutputConfig `mapstructure:"output"`
 }
 
@@ -64,7 +72,7 @@ type WeightsConfig struct {
 }
 
 type ScriptWeight struct {
-	Weight float64           `mapstructure:"weight"`
+	Weight float64            `mapstructure:"weight"`
 	Steps  map[string]float64 `mapstructure:"steps"`
 }
 
@@ -86,6 +94,10 @@ type HistoryConfig struct {
 	CleanupThreshold float64 `mapstructure:"cleanup_threshold"`
 }
 
+type ArchiveConfig struct {
+	Password string `mapstructure:"password"`
+}
+
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -96,24 +108,29 @@ func DefaultConfig() *Config {
 			ShutdownTimeout: 10 * time.Second,
 		},
 		Execution: ExecutionConfig{
-			Timeout:     300 * time.Second,
-			MaxParallel: 10,
-			WorkDir:     "./workspace",
-			TempDir:     "./temp",
-			EnvVars:     make(map[string]string),
+			Timeout:          300 * time.Second,
+			MaxParallel:      1,
+			WorkDir:          "/data/kb-runner/workspace",
+			TempDir:          "/data/kb-runner/temp",
+			EnvVars:          make(map[string]string),
+			LogRoot:          "/data/kb-runner/workspace",
+			ResultRoot:       "~/kb-runner/workspace/results",
+			KBDirectories:    []string{"./kbscript"},
+			DefaultQNo:       "",
+			MaxResultRecords: 100,
 		},
 		Scripts: ScriptsConfig{
-			Directory:          "./scripts",
-			KBscriptDirectory:  "./kbscript",
-			AllowedLanguages:   []string{"bash", "python"},
-			MaxSize:            "10MB",
+			Directory:         "./scripts",
+			KBscriptDirectory: "./kbscript",
+			AllowedLanguages:  []string{"bash", "python"},
+			MaxSize:           "10MB",
 		},
 		Logging: LoggingConfig{
 			Level:  "info",
 			Format: "json",
 			Output: OutputConfig{
 				Type:       "file",
-				Path:       "./logs/kb-runner.log",
+				Path:       "/data/kb-runner/logs/kb-runner.log",
 				MaxSize:    "100MB",
 				MaxBackups: 10,
 				MaxAge:     30,
@@ -125,7 +142,7 @@ func DefaultConfig() *Config {
 			Scripts:             make(map[string]ScriptWeight),
 		},
 		Backend: BackendConfig{
-			URL:     "http://backend:8081/api/v1",
+			URL:     "",
 			Timeout: 30 * time.Second,
 			Retry: RetryConfig{
 				MaxAttempts: 3,
@@ -137,6 +154,9 @@ func DefaultConfig() *Config {
 			MaxRecords:       4294967296,
 			AutoCleanup:      true,
 			CleanupThreshold: 0.9,
+		},
+		Archive: ArchiveConfig{
+			Password: "sangfor.vt@aDeploy2019",
 		},
 	}
 }
@@ -192,8 +212,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("max parallel must be at least 1")
 	}
 
-	if c.Logging.Level != "debug" && c.Logging.Level != "info" && 
-	   c.Logging.Level != "warn" && c.Logging.Level != "error" {
+	if c.Logging.Level != "debug" && c.Logging.Level != "info" &&
+		c.Logging.Level != "warn" && c.Logging.Level != "error" {
 		return fmt.Errorf("invalid log level: %s", c.Logging.Level)
 	}
 
@@ -247,4 +267,30 @@ func (c *Config) EnsureDirectories() error {
 		return err
 	}
 	return nil
+}
+
+func (c *Config) GetResultRoot() string {
+	path := c.Execution.ResultRoot
+	if path[:2] == "~/" {
+		home := os.Getenv("HOME")
+		if home != "" {
+			path = home + path[1:]
+		}
+	}
+	return path
+}
+
+func (c *Config) GetResultDir(qno string) string {
+	return fmt.Sprintf("%s/%s", c.GetResultRoot(), qno)
+}
+
+func (c *Config) GetKBDirectories() []string {
+	if len(c.Execution.KBDirectories) == 0 {
+		return []string{"./kbscript"}
+	}
+	return c.Execution.KBDirectories
+}
+
+func (c *Config) GetArchivePassword() string {
+	return c.Archive.Password
 }

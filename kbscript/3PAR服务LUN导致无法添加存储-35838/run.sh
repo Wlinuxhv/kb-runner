@@ -46,12 +46,13 @@ else
     step_success "未发现存储相关告警"
 fi
 
-# offline 模式下：仅基于 icare 日志适配器做分析，跳过 systemctl/dmesg/iscsiadm 等 realtime 命令
+# offline 模式下：仅基于 icare 日志适配器做分析
+# 注意：不直接 exit，继续执行后续步骤
 if [ "${KB_RUN_MODE:-online}" = "offline" ]; then
     step_start "offline_rely_on_logs"
     step_warning "offline mode: skip realtime commands; rely on collected icare logs"
-    kb_save
-    exit 0
+    # kb_save 在脚本最后执行
+    # exit 0 移除，让脚本继续执行
 fi
 
 # 步骤1：检查iSCSI认证状态
@@ -123,6 +124,6 @@ else
     step_info "无法检查服务LUN，iscsiadm命令不可用"
 fi
 
-kb_save
+# kb_save 在脚本最后执行
 
 echo "CASE执行完成"

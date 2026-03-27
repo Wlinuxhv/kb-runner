@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -50,6 +51,16 @@ var (
 	runMode      string
 	offlineQNo   string
 	offlineRoot  string
+
+	// 新增参数
+	qno             string
+	preprocess      bool
+	unpreprocesslog bool
+	processedPath   string
+	runAll          bool
+	kbList          string
+	resultDir       string
+	logPassword     string
 )
 
 var rootCmd = &cobra.Command{
@@ -138,17 +149,43 @@ var versionCmd = &cobra.Command{
 	},
 }
 
-var initCmd = &cobra.Command{
-	Use:   "init <case-name>",
-	Short: "创建CASE目录模板",
-	Long: `创建一个标准化的CASE目录结构，包含配置文件和脚本模板。
+var kbInitCmd = &cobra.Command{
+	Use:   "kbinit <kb-name>",
+	Short: "创建 KB 目录模板",
+	Long: `创建一个标准化的 KB 目录结构，包含配置文件、脚本模板和 Skill.md。
 
 示例:
-  kb-runner init my_check                  # 创建默认Bash CASE
-  kb-runner init my_check --lang python    # 创建Python CASE
-  kb-runner init my_check --output ./cases # 指定输出目录`,
+  kb-runner kbinit my_kb-00001                    # 创建默认 Bash KB
+  kb-runner kbinit my_kb-00001 --lang python      # 创建 Python KB
+  kb-runner kbinit my_kb-00001 --output ./kbscript # 指定输出目录`,
 	Args: cobra.ExactArgs(1),
-	RunE: initCase,
+	RunE: kbInitCase,
+}
+
+var kbCheckCmd = &cobra.Command{
+	Use:   "kbcheck [kb-name]",
+	Short: "检查 KB 脚本和配置文件",
+	Long: `检查 KB 脚本和 Skill.md 是否符合要求，包括：
+- 文件完整性检查
+- Skill.md 内容检查
+- run.sh 规范性检查
+- case.yaml 配置检查
+- Offline 模式处理检查
+
+示例:
+  kb-runner kbcheck                        # 检查所有 KB
+  kb-runner kbcheck my_kb-00001            # 检查指定 KB
+  kb-runner kbcheck --verbose              # 详细输出`,
+	RunE: kbCheck,
+}
+
+var initCmd = &cobra.Command{
+	Use:        "init <case-name>",
+	Short:      "创建 CASE 目录模板 (已废弃，请使用 kbinit)",
+	Long:       `创建一个标准化的 CASE 目录结构，包含配置文件和脚本模板。`,
+	Args:       cobra.ExactArgs(1),
+	RunE:       initCase,
+	Deprecated: "请使用 kbinit 命令",
 }
 
 var serveCmd = &cobra.Command{
@@ -215,16 +252,33 @@ func init() {
 	runCmd.Flags().StringVar(&category, "category", "", "执行指定分类的所有CASE")
 	runCmd.Flags().StringSliceVar(&tags, "tags", nil, "执行指定标签的所有CASE")
 	runCmd.Flags().StringVar(&runMode, "mode", "online", "运行模式 (online/offline)")
-	runCmd.Flags().StringVar(&offlineQNo, "qno", "", "离线日志包Q单号（用于offline模式自动解压定位）")
-	runCmd.Flags().StringVar(&offlineRoot, "log-root", "./workspace/icare_log/logall", "离线日志根目录（用于offline模式）")
+	runCmd.Flags().StringVar(&offlineQNo, "qno", "", "离线日志包 Q 单号（用于 offline 模式自动解压定位）")
+	runCmd.Flags().StringVar(&offlineRoot, "log-root", "./workspace/icare_log/logall", "离线日志根目录（用于 offline 模式）")
+
+	// 新增参数
+	runCmd.Flags().StringVar(&qno, "Q", "", "Q 单号（offline 模式必需）")
+	runCmd.Flags().BoolVar(&preprocess, "preprocess", true, "启用日志预处理（默认启用）")
+	runCmd.Flags().BoolVar(&unpreprocesslog, "unpreprocesslog", false, "禁用日志预处理")
+	runCmd.Flags().StringVar(&processedPath, "processed-path", "", "已处理的日志路径（禁用预处理时必需）")
+	runCmd.Flags().BoolVar(&runAll, "all", false, "执行所有 KB 脚本")
+	runCmd.Flags().StringVar(&kbList, "kb", "", "执行指定的 KB 列表（逗号分隔）")
+	runCmd.Flags().StringVar(&resultDir, "result-dir", "", "结果输出目录（覆盖配置）")
+	runCmd.Flags().StringVar(&logPassword, "log-password", "", "日志包密码（可选，覆盖默认密码）")
 
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(scenarioCmd)
 	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(kbInitCmd)
+	rootCmd.AddCommand(kbCheckCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(preprocessCmd)
+
+	kbInitCmd.Flags().StringVarP(&initLanguage, "language", "l", "bash", "脚本语言 (bash/python)")
+	kbInitCmd.Flags().StringVarP(&initOutput, "output", "o", "./kbscript", "输出目录")
+	kbInitCmd.Flags().StringVar(&initTemplate, "template", "default", "模板类型")
 
 	initCmd.Flags().StringVarP(&initLanguage, "language", "l", "bash", "脚本语言 (bash/python)")
 	initCmd.Flags().StringVarP(&initOutput, "output", "o", "./cases", "输出目录")
@@ -232,18 +286,9 @@ func init() {
 
 	serveCmd.Flags().StringVarP(&serveHost, "host", "H", "0.0.0.0", "监听地址")
 	serveCmd.Flags().IntVarP(&servePort, "port", "p", 8080, "监听端口")
-	serveCmd.Flags().StringVar(&serveToken, "token", "", "访问Token")
+	serveCmd.Flags().StringVar(&serveToken, "token", "", "访问 Token")
 
 	preprocessCmd.Flags().StringVar(&preprocessRoot, "root", "./workspace/icare_log/logall", "日志根目录")
-
-	rootCmd.AddCommand(listCmd)
-	rootCmd.AddCommand(showCmd)
-	rootCmd.AddCommand(scenarioCmd)
-	rootCmd.AddCommand(runCmd)
-	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(serveCmd)
-	rootCmd.AddCommand(preprocessCmd)
 }
 
 func preprocessLog(cmd *cobra.Command, args []string) error {
@@ -396,19 +441,24 @@ func runScripts(cmd *cobra.Command, args []string) error {
 		args = append(args, scriptPath)
 	}
 
-	switch {
-	case interactive:
-		tasks, err = interactiveSelect(caseManager, cfg)
-	case scenarioName != "":
-		tasks, err = buildTasksFromScenario(scenarioManager, caseManager, scenarioName, cfg)
-	case caseName != "":
-		tasks, err = buildTasksFromCase(caseManager, caseName, cfg)
-	case category != "":
-		tasks, err = buildTasksFromCategory(caseManager, category, cfg)
-	case len(tags) > 0:
-		tasks, err = buildTasksFromTags(caseManager, tags, cfg)
-	default:
-		tasks = buildTasks(args, cfg)
+	// 支持新的批量执行参数
+	if runAll || kbList != "" || (qno != "" && category == "" && len(tags) == 0) {
+		tasks, err = buildTasksForBatch(caseManager, cfg)
+	} else {
+		switch {
+		case interactive:
+			tasks, err = interactiveSelect(caseManager, cfg)
+		case scenarioName != "":
+			tasks, err = buildTasksFromScenario(scenarioManager, caseManager, scenarioName, cfg)
+		case caseName != "":
+			tasks, err = buildTasksFromCase(caseManager, caseName, cfg)
+		case category != "":
+			tasks, err = buildTasksFromCategory(caseManager, category, cfg)
+		case len(tags) > 0:
+			tasks, err = buildTasksFromTags(caseManager, tags, cfg)
+		default:
+			tasks = buildTasks(args, cfg)
+		}
 	}
 
 	if err != nil {
@@ -420,22 +470,62 @@ func runScripts(cmd *cobra.Command, args []string) error {
 	}
 
 	// offline 模式：注入 KB_RUN_MODE，并在给定 Q 单号时自动预处理解压，注入离线路径
-	if strings.ToLower(runMode) == "offline" {
+	targetQNo := ""
+	if strings.ToLower(runMode) == "offline" || qno != "" || offlineQNo != "" {
+		// 确定 Q 单号：优先使用新参数 --Q，否则使用 --qno
+		targetQNo = qno
+		if targetQNo == "" {
+			targetQNo = offlineQNo
+		}
+
 		var qnoDir string
-		if offlineQNo != "" {
+
+		// 判断是否需要预处理
+		needPreprocess := preprocess && !unpreprocesslog
+
+		if needPreprocess && targetQNo != "" {
 			p := preprocessor.NewLogPreprocessor()
 			p.RootPath = offlineRoot
 			p.ConfigPath = "./config/icare_log.json"
-			if err := p.Init(offlineQNo); err != nil {
+
+			// 使用自定义密码（如果提供）
+			if logPassword != "" {
+				p.ArchivePassword = logPassword
+			} else {
+				p.ArchivePassword = cfg.GetArchivePassword()
+			}
+
+			if err := p.Init(targetQNo); err != nil {
 				return fmt.Errorf("offline preprocess init failed: %w", err)
 			}
 			if err := p.Process(); err != nil {
-				return fmt.Errorf("offline preprocess failed: %w", err)
+				// 预处理失败，提示用户选择
+				fmt.Printf("日志预处理失败：%v\n", err)
+				fmt.Println("请选择：[c] 继续（使用已解压目录） [q] 退出")
+				var choice string
+				fmt.Scanln(&choice)
+				if choice == "q" || choice == "Q" {
+					return fmt.Errorf("用户选择退出")
+				}
 			}
 			// 解压根目录：优先 extract dir，否则用 qno path
 			qnoDir = p.GetExtractPath()
 			if qnoDir == "" {
 				qnoDir = p.GetQNoPath()
+			}
+		} else if unpreprocesslog {
+			// 禁用预处理，使用指定的已处理路径
+			if processedPath == "" && targetQNo == "" {
+				return fmt.Errorf("--unpreprocesslog 必须提供 --processed-path 或 --Q")
+			}
+			if processedPath != "" {
+				qnoDir = processedPath
+			} else if targetQNo != "" {
+				// 使用默认路径
+				qnoDir = filepath.Join(offlineRoot, targetQNo[len("Q"):len(targetQNo)-2], targetQNo)
+				if _, err := os.Stat(qnoDir); os.IsNotExist(err) {
+					return fmt.Errorf("指定的日志目录不存在：%s", qnoDir)
+				}
 			}
 		}
 
@@ -524,7 +614,99 @@ func runScripts(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// 保存结果到配置的目录（offline 模式或指定 Q 单号时）
+	if targetQNo != "" {
+		resultRoot := cfg.GetResultRoot()
+		if resultDir != "" {
+			resultRoot = resultDir
+		}
+
+		// 直接使用 resultRoot 作为 Q 单号目录，不再创建子目录
+		// 格式：~/kb-runner/workspace/results/Q2026031700281/
+		resultQNoDir := resultRoot
+
+		// 确保目录存在
+		if err := os.MkdirAll(resultQNoDir, 0755); err != nil {
+			log.Warn("Failed to create result directory", "error", err)
+		} else {
+			// 保存单个 KB 结果
+			for _, script := range matrix.Scripts {
+				// 从 script.Name 或 script.Results 中提取真实的 KB ID
+				kbID := extractKBID(script.Name, script.Results)
+
+				// 文件名格式：kb{ID}-{exec_id}_result.json
+				filename := fmt.Sprintf("kb%s-%s_result.json", kbID, matrix.ExecutionID)
+
+				singleResult := map[string]interface{}{
+					"execution_id": matrix.ExecutionID,
+					"qno":          targetQNo,
+					"timestamp":    matrix.Timestamp.Format(time.RFC3339),
+					"kb_id":        kbID,
+					"kb_name":      script.Name,
+					"status":       script.Status,
+					"score":        script.FinalScore,
+					"max_score":    script.MaxScore,
+					"steps":        script.Steps,
+					"results":      script.Results,
+					"extensions": map[string]interface{}{
+						"log_path": offlineRoot,
+					},
+				}
+
+				data, err := json.MarshalIndent(singleResult, "", "  ")
+				if err != nil {
+					log.Warn("Failed to marshal single result", "error", err)
+					continue
+				}
+
+				// 直接保存到 Q 单号目录，不再创建子目录
+				filepath := filepath.Join(resultQNoDir, filename)
+				if err := os.WriteFile(filepath, data, 0644); err != nil {
+					log.Warn("Failed to save single result", "error", err, "file", filepath)
+				} else {
+					log.Info("Result saved", "file", filepath, "kb_id", kbID)
+				}
+			}
+
+			// 保存排名文件
+			rankedFilename := fmt.Sprintf("ranked_results_%s.json", matrix.ExecutionID)
+			rankedData, err := json.MarshalIndent(matrix, "", "  ")
+			if err != nil {
+				log.Warn("Failed to marshal ranked results", "error", err)
+			} else {
+				rankedFilepath := filepath.Join(resultQNoDir, rankedFilename)
+				if err := os.WriteFile(rankedFilepath, rankedData, 0644); err != nil {
+					log.Warn("Failed to save ranked results", "error", err)
+				} else {
+					log.Info("Ranked results saved", "file", rankedFilepath)
+				}
+			}
+		}
+	}
+
 	return outputResults(matrix, outputFormat, outputDir)
+}
+
+// extractKBID 从 KB 名称中提取真实的 KB ID
+func extractKBID(kbName string, results map[string]interface{}) string {
+	// 尝试从 kbName 中提取（格式：名称-ID）
+	// 例如：3PAR 服务 LUN 导致无法添加存储 -35838 -> 35838
+	parts := strings.Split(kbName, "-")
+	if len(parts) > 0 {
+		lastPart := parts[len(parts)-1]
+		// 检查是否是纯数字
+		if kbID, err := strconv.Atoi(lastPart); err == nil && kbID > 0 {
+			return lastPart
+		}
+	}
+
+	// 尝试从 results 中读取 kb_id
+	if kbID, ok := results["kb_id"].(string); ok && kbID != "" {
+		return kbID
+	}
+
+	// 如果都失败，返回 kbName 本身
+	return kbName
 }
 
 func discoverOfflineHostsAndLogDirs(qnoDir string) ([]string, []string) {
@@ -1184,7 +1366,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 }
 
 func generateID() string {
-	return fmt.Sprintf("exec-%d-%d", time.Now().Unix(), time.Now().UnixNano()%1000000)
+	now := time.Now()
+	// 格式：YYYYMMDD-HHMMSS-ffffff
+	// 例如：20260327-091720-779362
+	return fmt.Sprintf("%s-%06d", now.Format("20060102-150405"), now.UnixNano()%1000000)
 }
 
 func saveHistory(cfg *config.Config, matrix *result.ResultMatrix, caseName, scenarioName string) error {
@@ -1235,4 +1420,367 @@ func saveHistory(cfg *config.Config, matrix *result.ResultMatrix, caseName, scen
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+// saveResultsToDir 保存结果到指定目录
+// buildTasksForBatch 构建批量执行任务
+func buildTasksForBatch(caseManager *cases.Manager, cfg *config.Config) ([]*adapter.Task, error) {
+	var tasks []*adapter.Task
+
+	// 加载所有 KB 脚本（使用空 FilterOptions 获取全部）
+	allCases := caseManager.List(cases.FilterOptions{})
+
+	// 筛选 KB
+	var filteredCases []*cases.Case
+	if kbList != "" {
+		// 按指定的 KB 列表筛选
+		kbNames := strings.Split(kbList, ",")
+		kbNameMap := make(map[string]bool)
+		for _, name := range kbNames {
+			kbNameMap[strings.TrimSpace(name)] = true
+		}
+
+		for _, c := range allCases {
+			if kbNameMap[c.Name] {
+				filteredCases = append(filteredCases, c)
+			}
+		}
+	} else if category != "" {
+		// 按分类筛选
+		for _, c := range allCases {
+			if c.Category == category {
+				filteredCases = append(filteredCases, c)
+			}
+		}
+	} else if len(tags) > 0 {
+		// 按标签筛选
+		tagMap := make(map[string]bool)
+		for _, tag := range tags {
+			tagMap[tag] = true
+		}
+
+		for _, c := range allCases {
+			for _, tag := range c.Tags {
+				if tagMap[tag] {
+					filteredCases = append(filteredCases, c)
+					break
+				}
+			}
+		}
+	} else {
+		// 默认执行所有 KB
+		filteredCases = allCases
+	}
+
+	// 构建任务
+	for _, c := range filteredCases {
+		// 从 Path 中提取目录名作为 KB ID（包含完整名称和数字 ID）
+		kbDirName := filepath.Base(filepath.Dir(c.Path))
+
+		task := &adapter.Task{
+			ID:         kbDirName, // 使用完整目录名作为 ID
+			ScriptName: c.Name,
+			ScriptPath: c.Path,
+			Language:   adapter.Language(c.Language),
+			Timeout:    c.Timeout,
+			Params:     c.Params,
+			Env:        make(map[string]string),
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
+}
+
+// kbInitCase 创建 KB 目录模板
+func kbInitCase(cmd *cobra.Command, args []string) error {
+	kbName := args[0]
+
+	if initLanguage != "bash" && initLanguage != "python" {
+		return fmt.Errorf("不支持的脚本语言：%s, 请使用 bash 或 python", initLanguage)
+	}
+
+	kbDir := filepath.Join(initOutput, kbName)
+	if _, err := os.Stat(kbDir); err == nil {
+		return fmt.Errorf("目录已存在：%s", kbDir)
+	}
+
+	if err := os.MkdirAll(kbDir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败：%w", err)
+	}
+
+	// 创建 case.yaml
+	caseYAML := fmt.Sprintf(`name: %s
+language: %s
+category: default
+tags:
+  - default
+description: TODO: 在这里填写 KB 的描述信息
+timeout: 300s
+weight: 1.0
+params:
+  kb_id: "00000"
+
+scoring:
+  max_score: 100.0
+  steps:
+    - name: "检查相关告警"
+      weight: 0.3
+      expected_status: "success"
+    - name: "检查配置"
+      weight: 0.3
+      expected_status: "success"
+    - name: "结果分析"
+      weight: 0.4
+      expected_status: "success"
+`, kbName, initLanguage)
+
+	yamlPath := filepath.Join(kbDir, "case.yaml")
+	if err := os.WriteFile(yamlPath, []byte(caseYAML), 0644); err != nil {
+		return fmt.Errorf("创建配置文件失败：%w", err)
+	}
+
+	// 创建 Skill.md
+	skillMD := fmt.Sprintf(`# %s
+
+## KB ID
+
+TODO: 填写 KB 单号
+
+## 问题描述
+
+TODO: 描述问题的现象和影响范围
+
+## 告警匹配
+
+- **告警来源**: TODO
+- **触发条件**: TODO
+
+## 排查步骤
+
+### 步骤 1：检查相关告警
+
+**脚本**: step01-check-alerts.bash
+
+TODO: 说明检查什么告警
+
+### 步骤 2：检查配置
+
+**脚本**: step02-check-config.bash
+
+TODO: 说明检查什么配置
+
+### 步骤 3：结果分析
+
+**脚本**: step03-analyze-results.bash
+
+TODO: 说明如何分析结果
+
+## 根因分析
+
+TODO: 说明问题的根本原因
+
+## 解决方案
+
+TODO: 提供解决方案和处理步骤
+
+## 建议
+
+TODO: 给出建议和注意事项
+`, kbName)
+
+	skillPath := filepath.Join(kbDir, "Skill.md")
+	if err := os.WriteFile(skillPath, []byte(skillMD), 0644); err != nil {
+		return fmt.Errorf("创建 Skill.md 失败：%w", err)
+	}
+
+	// 创建 run.sh
+	var scriptContent string
+	if initLanguage == "bash" {
+		scriptContent = `#!/bin/bash
+# KB: KB_NAME
+# 描述：TODO
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+source "$PROJECT_ROOT/scripts/bash/api.sh"
+source "$PROJECT_ROOT/scripts/bash/icare_log_api.sh"
+
+kb_init
+
+# 步骤 1：检查相关告警
+step_start "检查相关告警"
+# TODO: 添加检查逻辑
+step_success "未发现相关告警"
+
+# 步骤 2：检查配置
+step_start "检查配置"
+# TODO: 添加检查逻辑
+step_success "配置检查完成"
+
+# 步骤 3：结果分析
+step_start "结果分析"
+# TODO: 添加分析逻辑
+step_success "分析完成"
+
+kb_save
+
+echo "KB 执行完成"
+`
+		scriptContent = strings.ReplaceAll(scriptContent, "KB_NAME", kbName)
+		scriptPath := filepath.Join(kbDir, "run.sh")
+		if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+			return fmt.Errorf("创建脚本文件失败：%w", err)
+		}
+	}
+
+	fmt.Printf("✓ KB 目录创建成功：%s\n", kbDir)
+	fmt.Printf("  - case.yaml: 配置文件\n")
+	fmt.Printf("  - Skill.md: KB 文档\n")
+	fmt.Printf("  - run.sh: 执行脚本\n")
+	fmt.Printf("\n请编辑这些文件，补充 KB 的具体内容\n")
+
+	return nil
+}
+
+// kbCheck 检查 KB 脚本和配置文件
+func kbCheck(cmd *cobra.Command, args []string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	log, err := createLogger(cfg)
+	if err != nil {
+		return err
+	}
+
+	// 获取 KB 目录列表
+	kbDirs := cfg.GetKBDirectories()
+	if len(kbDirs) == 0 {
+		kbDirs = []string{"./kbscript"}
+	}
+
+	var allKBs []string
+	for _, kbDir := range kbDirs {
+		entries, err := os.ReadDir(kbDir)
+		if err != nil {
+			log.Warn("读取 KB 目录失败", "dir", kbDir, "error", err)
+			continue
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			kbPath := filepath.Join(kbDir, entry.Name())
+			if _, err := os.Stat(filepath.Join(kbPath, "run.sh")); err == nil {
+				allKBs = append(allKBs, kbPath)
+			}
+		}
+	}
+
+	// 如果指定了 KB 名称，只检查该 KB
+	if len(args) > 0 {
+		kbName := args[0]
+		var found bool
+		var filteredKBs []string
+		for _, kbPath := range allKBs {
+			if filepath.Base(kbPath) == kbName {
+				filteredKBs = append(filteredKBs, kbPath)
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("找不到 KB: %s", kbName)
+		}
+		allKBs = filteredKBs
+	}
+
+	// 检查每个 KB
+	totalKBs := len(allKBs)
+	passedKBs := 0
+	failedKBs := 0
+
+	for _, kbPath := range allKBs {
+		kbName := filepath.Base(kbPath)
+		log.Info("检查 KB", "name", kbName)
+
+		passed := true
+
+		// 检查文件存在性
+		requiredFiles := []string{"Skill.md", "run.sh", "case.yaml"}
+		for _, file := range requiredFiles {
+			filePath := filepath.Join(kbPath, file)
+			if _, err := os.Stat(filePath); os.IsNotExist(err) {
+				log.Error("缺少必需文件", "file", file)
+				passed = false
+			}
+		}
+
+		// 检查 Skill.md 内容
+		skillPath := filepath.Join(kbPath, "Skill.md")
+		if data, err := os.ReadFile(skillPath); err == nil {
+			content := string(data)
+			required := []string{"KB ID", "问题", "步骤", "解决", "根因"}
+			for _, req := range required {
+				if !strings.Contains(content, req) {
+					log.Warn("Skill.md 缺少内容", "missing", req)
+					passed = false
+				}
+			}
+		}
+
+		// 检查 run.sh
+		runPath := filepath.Join(kbPath, "run.sh")
+		if data, err := os.ReadFile(runPath); err == nil {
+			content := string(data)
+			required := []string{"kb_init", "kb_save", "step_start"}
+			for _, req := range required {
+				if !strings.Contains(content, req) {
+					log.Warn("run.sh 缺少调用", "missing", req)
+					passed = false
+				}
+			}
+
+			// 检查 offline 模式是否有提前退出
+			if strings.Contains(content, "KB_RUN_MODE") && strings.Contains(content, "exit 0") {
+				log.Warn("Offline 模式可能有提前退出")
+				passed = false
+			}
+		}
+
+		// 检查 case.yaml
+		yamlPath := filepath.Join(kbPath, "case.yaml")
+		if data, err := os.ReadFile(yamlPath); err == nil {
+			content := string(data)
+			if !strings.Contains(content, "scoring:") || !strings.Contains(content, "steps:") {
+				log.Warn("case.yaml 缺少 scoring 配置")
+				passed = false
+			}
+		}
+
+		if passed {
+			log.Info("KB 检查通过", "name", kbName)
+			passedKBs++
+		} else {
+			log.Error("KB 检查失败", "name", kbName)
+			failedKBs++
+		}
+	}
+
+	// 输出总结
+	fmt.Printf("\n==========================================\n")
+	fmt.Printf("检查总结\n")
+	fmt.Printf("==========================================\n")
+	fmt.Printf("KB 总数：%d\n", totalKBs)
+	fmt.Printf("通过：%d\n", passedKBs)
+	fmt.Printf("失败：%d\n", failedKBs)
+
+	if failedKBs > 0 {
+		return fmt.Errorf("有 %d 个 KB 检查失败", failedKBs)
+	}
+
+	return nil
 }

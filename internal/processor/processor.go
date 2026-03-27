@@ -24,6 +24,22 @@ func NewProcessor(cfg *config.Config, log *logger.Logger) *Processor {
 	}
 }
 
+// ProcessWithQNo 处理结果并添加 Q 单号信息
+func (p *Processor) ProcessWithQNo(execResults []*executor.ExecutionResult, qno string) (*result.ResultMatrix, error) {
+	matrix, err := p.Process(execResults)
+	if err != nil {
+		return nil, err
+	}
+
+	// 添加 Q 单号到扩展字段
+	if matrix.Summary.Extensions == nil {
+		matrix.Summary.Extensions = make(map[string]interface{})
+	}
+	matrix.Summary.Extensions["qno"] = qno
+
+	return matrix, nil
+}
+
 func (p *Processor) Parse(output string) (*result.ScriptResult, error) {
 	if output == "" {
 		return nil, fmt.Errorf("empty output")
@@ -173,5 +189,7 @@ func (p *Processor) GenerateReport(matrix *result.ResultMatrix) (string, error) 
 
 func generateExecutionID() string {
 	now := time.Now()
-	return fmt.Sprintf("exec-%d-%d", now.Unix(), now.UnixNano()%1000000)
+	// 格式：YYYYMMDD-HHMMSS-ffffff
+	// 例如：20260327-093800-123456
+	return fmt.Sprintf("%s-%06d", now.Format("20060102-150405"), now.UnixNano()%1000000)
 }

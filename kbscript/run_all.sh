@@ -102,73 +102,59 @@ merge_results() {
         exit 1
     fi
     
-    # 使用 Python 合并结果（如果可用）
-    if command -v python3 &> /dev/null; then
-        python3 << EOF
-import json
-import os
-from datetime import datetime
-
-result_files = ${temp_results[@]+"$(printf '"%s",' "${temp_results[@]}" | sed 's/,$//')"}
-results = []
-
-for f in result_files:
-    try:
-        with open(f, 'r') as file:
-            data = json.load(file)
-            results.append({
-                'name': data.get('script_name', os.path.basename(f).replace('_result.json', '')),
-                'score': data.get('score', 0),
-                'max_score': data.get('max_score', 100.0),
-                'status': data.get('status', 'unknown'),
-                'steps': data.get('steps', []),
-                'results': data.get('results', {}),
-                'start_time': data.get('start_time', ''),
-                'end_time': data.get('end_time', '')
-            })
-    except Exception as e:
-        print(f"警告：读取 {f} 失败：{e}")
-
-# 按分数排序
-results.sort(key=lambda x: x['score'], reverse=True)
-
-# 添加排名
-for i, r in enumerate(results):
-    r['rank'] = i + 1
-
-# 生成最终结果
-final_result = {
-    'execution_id': '$EXEC_ID',
-    'timestamp': datetime.now().isoformat(),
-    'total_kbs': len(results),
-    'success_count': sum(1 for r in results if r['status'] == 'success'),
-    'failure_count': sum(1 for r in results if r['status'] == 'failure'),
-    'average_score': sum(r['score'] for r in results) / len(results) if results else 0,
-    'ranked_results': results,
-    'extensions': {
-        'kb_directory': '$KB_DIR',
-        'result_directory': '$RESULT_DIR',
-        'log_file': '$LOG_FILE'
-    }
-}
-
-# 写入结果文件
-output_file = '$RESULT_FILE'
-with open(output_file, 'w', encoding='utf-8') as f:
-    json.dump(final_result, f, ensure_ascii=False, indent=2)
-
-print(f"结果已写入：{output_file}")
-print("")
-print("排名结果:")
-print("-" * 60)
-print(f"{'排名':<6}{'KB 名称':<40}{'得分':<10}{'状态':<10}")
-print("-" * 60)
-for r in results:
-    print(f"{r['rank']:<6}{r['name'][:38]:<40}{r['score']:<10.2f}{r['status']:<10}")
-print("-" * 60)
-EOF
+    # 使用 jq 合并结果并生成排名（需要 jq 支持）
+    if command -v jq &> /dev/null; then
+        # 创建临时文件数组
+        local temp_array="[]"
+        for rf in "${temp_results[@]}"; do
+            temp_array=$(echo "$temp_array" | jq --slurpfile r "$rf" '. + $r')
+        done
+        
+        # 生成排名和统计
+        jq -n \
+            --arg exec_id "$EXEC_ID" \
+            --arg timestamp "$(date -Iseconds)" \
+            --arg kb_dir "$KB_DIR" \
+            --arg result_dir "$RESULT_DIR" \
+            --arg log_file "$LOG_FILE" \
+            --argjson results "$temp_array" \
+            '
+            # 按分数排序
+            ($results | sort_by(-.score)) as $sorted |
+            
+            # 添加排名
+            ($sorted | to_entries | map(.value + {rank: (.key + 1)})) as $ranked |
+            
+            # 计算统计
+            {
+                execution_id: $exec_id,
+                timestamp: $timestamp,
+                total_kbs: ($ranked | length),
+                success_count: ([$ranked[] | select(.status == "success")] | length),
+                failure_count: ([$ranked[] | select(.status == "failure")] | length),
+                average_score: (if ($ranked | length) > 0 then ([$ranked[].score] | add) / ($ranked | length) else 0 end),
+                ranked_results: $ranked,
+                extensions: {
+                    kb_directory: $kb_dir,
+                    result_directory: $result_dir,
+                    log_file: $log_file
+                }
+            }
+            ' > "$RESULT_FILE"
+        
+        echo "结果已写入：$RESULT_FILE"
+        echo ""
+        echo "排名结果:"
+        echo "------------------------------------------------------------"
+        printf "%-6s %-40s %-10s %-10s\n" "排名" "KB 名称" "得分" "状态"
+        echo "------------------------------------------------------------"
+        jq -r '.ranked_results[] | "\(.rank)\t\(.name)\t\(.score)\t\(.status)"' "$RESULT_FILE" | \
+            while IFS=$'\t' read -r rank name score status; do
+                printf "%-6s %-40s %-10s %-10s\n" "$rank" "${name:0:40}" "$score" "$status"
+            done
+        echo "------------------------------------------------------------"
     else
-        # 没有 Python，使用简单的 JSON 合并
+        # 没有 jq，使用简单的 JSON 合并
         echo "{" > "$RESULT_FILE"
         echo "  \"execution_id\": \"$EXEC_ID\"," >> "$RESULT_FILE"
         echo "  \"timestamp\": \"$(date -Iseconds)\"," >> "$RESULT_FILE"
@@ -188,7 +174,7 @@ EOF
         echo "  ]" >> "$RESULT_FILE"
         echo "}" >> "$RESULT_FILE"
         
-        echo "结果已写入：$RESULT_FILE (简化版)"
+        echo "结果已写入：$RESULT_FILE (简化版，需要安装 jq 获得完整功能)"
     fi
 }
 

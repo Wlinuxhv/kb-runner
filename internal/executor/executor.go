@@ -253,5 +253,8 @@ func convertStatus(s result.ScriptStatus) Status {
 }
 
 func generateID() string {
-	return fmt.Sprintf("exec-%d-%d", time.Now().Unix(), time.Now().UnixNano()%1000000)
+	now := time.Now()
+	// 格式：YYYYMMDD-HHMMSS-ffffff
+	// 例如：20260327-091720-779362
+	return fmt.Sprintf("%s-%06d", now.Format("20060102-150405"), now.UnixNano()%1000000)
 }
