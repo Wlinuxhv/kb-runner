@@ -64,13 +64,42 @@ func (sm *SkillManager) UpdateSkill(caseName, content string) error {
 
 // GetSkillPath 获取Skill.md文件的完整路径
 func (sm *SkillManager) getSkillPath(caseName string) string {
-	// 首先检查workspace/cases目录
+	// 首先检查 kbscript 目录（新的 KB 存储位置）
+	// 遍历 kbscript 目录查找匹配的 KB（支持模糊匹配）
+	kbscriptDirs := []string{
+		filepath.Join(sm.basePath, "../kbscript"),
+		filepath.Join(filepath.Dir(filepath.Dir(sm.basePath)), "kbscript"),
+		"/home/wlinuxhv/workspace/kb-runner/kbscript",
+	}
+
+	for _, kbscriptDir := range kbscriptDirs {
+		entries, err := os.ReadDir(kbscriptDir)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			// 检查目录名是否包含 caseName 或以 caseName 开头
+			dirName := entry.Name()
+			if strings.Contains(dirName, caseName) || strings.HasPrefix(dirName, caseName) {
+				path := filepath.Join(kbscriptDir, dirName, "Skill.md")
+				if _, err := os.Stat(path); err == nil {
+					return path
+				}
+			}
+		}
+	}
+
+	// 检查 workspace/cases 目录
 	path := filepath.Join(sm.basePath, "cases", caseName, "Skill.md")
 	if _, err := os.Stat(path); err == nil {
 		return path
 	}
 
-	// 检查中台目录 (可能与workspace同级)
+	// 检查中台目录 (可能与 workspace 同级)
 	path = filepath.Join(sm.basePath, "中台", caseName, "Skill.md")
 	if _, err := os.Stat(path); err == nil {
 		return path
@@ -82,8 +111,8 @@ func (sm *SkillManager) getSkillPath(caseName string) string {
 		return path
 	}
 
-	// 回退到workspace路径
-	return filepath.Join(sm.basePath, "cases", caseName, "Skill.md")
+	// 回退到 kbscript 路径
+	return filepath.Join(sm.basePath, "../kbscript", caseName, "Skill.md")
 }
 
 // SkillVersion Skill版本历史
@@ -232,8 +261,8 @@ func (sm *SkillManager) HandleSkillGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Response{
 		Success: true,
 		Data: map[string]interface{}{
-			"kb_code":   caseName,
-			"content":   content,
+			"kb_code":    caseName,
+			"content":    content,
 			"updated_at": time.Now().Format(time.RFC3339),
 		},
 		Timestamp: time.Now().Format(time.RFC3339),
@@ -358,9 +387,9 @@ func (sm *SkillManager) HandleSkillHistoryDetail(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, Response{
 		Success: true,
 		Data: map[string]interface{}{
-			"kb_code":  caseName,
-			"version":  version,
-			"content":  content,
+			"kb_code":   caseName,
+			"version":   version,
+			"content":   content,
 			"timestamp": time.Unix(version, 0).Format(time.RFC3339),
 		},
 		Timestamp: time.Now().Format(time.RFC3339),

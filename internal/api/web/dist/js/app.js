@@ -375,10 +375,32 @@ function showResult(result) {
 }
 
 async function showScriptDetail(scriptName) {
-    if (!currentResultId) {
-        alert('请先执行KB');
+    if (!currentExecutionDir) {
+        alert('请先执行 KB');
         return;
     }
+
+    try {
+        const result = await apiRequest(`${API_BASE}/executions/${currentExecutionDir}`);
+        const script = (result.scripts || []).find(s => s.name === scriptName);
+
+        if (!script) {
+            alert('未找到脚本详情');
+            return;
+        }
+
+        currentExecutionDetail = {
+            result: result,
+            script: script,
+            caseName: scriptName
+        };
+
+        renderScriptDetail(currentExecutionDetail.caseName, script, result);
+        document.getElementById('detailModal').classList.add('active');
+    } catch (error) {
+        alert('获取详情失败：' + error.message);
+    }
+}
 
     try {
         const record = await apiRequest(`${API_BASE}/history/${currentResultId}`);
