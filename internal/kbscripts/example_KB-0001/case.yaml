@@ -1,0 +1,50 @@
+# KB 脚本配置文件
+# KB 名称：示例 KB
+# 描述：演示新的得分计算系统
+
+name: "示例 KB"
+language: bash
+category: example
+tags:
+  - example
+  - demo
+  - scoring
+description: "演示新的得分计算系统的示例 KB 脚本"
+timeout: 300s
+
+# 得分配置 - 满分 100 分
+scoring:
+  max_score: 100.0
+  
+  # 步骤配置：每个步骤的权重和期望状态
+  # 权重总和应该为 1.0 (即 100%)，系统会自动归一化
+  steps:
+    - name: "检查系统环境"
+      weight: 0.3         # 占 30 分
+      expected_status: "success"
+      description: "检查操作系统环境"
+      
+    - name: "执行测试"
+      weight: 0.4         # 占 40 分
+      expected_status: "success"
+      description: "执行测试任务"
+      
+    - name: "结果汇报"
+      weight: 0.3         # 占 30 分
+      expected_status: "success"
+      description: "汇报测试结果"
+
+# 参数配置
+params:
+  kb_id: "00001"
+  kb_source: "示例 KB 脚本"
+
+# 扩展字段 - 可以自定义任何字段
+extensions:
+  author: "kb-runner-team"
+  version: "1.0.0"
+  created_at: "2026-03-26"
+  updated_at: "2026-03-26"
+  custom_fields:
+    priority: "medium"
+    category: "example"

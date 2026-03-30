@@ -1,0 +1,11 @@
+name: test_case
+language: bash
+category: test
+tags:
+  - test
+  - example
+description: A test case for kbscript loading
+timeout: 300s
+weight: 1.0
+params:
+  test_param: test_value

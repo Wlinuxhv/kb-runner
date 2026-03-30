@@ -2,8 +2,11 @@ package logger
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,7 +27,7 @@ type Config struct {
 	Level      string
 	Format     string
 	OutputPath string
-	MaxSize    int
+	MaxSize    string // 格式如 "10MB"
 	MaxBackups int
 	MaxAge     int
 }
@@ -33,8 +36,10 @@ type Logger struct {
 	zap    *zap.SugaredLogger
 	level  zapcore.Level
 	mu     sync.Mutex
-	file   *os.File
+	writer io.WriteCloser // 可以是文件或其他写入器
 	config Config
+	pid    int
+	module string
 }
 
 var (
@@ -53,6 +58,11 @@ func New(level, format, outputPath string) (*Logger, error) {
 }
 
 func NewWithConfig(cfg Config) (*Logger, error) {
+	return NewWithConfigAndModule(cfg, "")
+}
+
+// NewWithConfigAndModule 创建带模块标识的日志
+func NewWithConfigAndModule(cfg Config, module string) (*Logger, error) {
 	var zapLevel zapcore.Level
 	if err := zapLevel.UnmarshalText([]byte(cfg.Level)); err != nil {
 		zapLevel = zapcore.InfoLevel
@@ -82,145 +92,283 @@ func NewWithConfig(cfg Config) (*Logger, error) {
 	}
 
 	var ws zapcore.WriteSyncer
+	var writer io.WriteCloser
+
+	// 展开 PID 占位符
+	pid := os.Getpid()
+	outputPath := ExpandPID(cfg.OutputPath, pid)
+
 	if cfg.OutputPath != "" && cfg.OutputPath != "stdout" {
-		dir := filepath.Dir(cfg.OutputPath)
+		dir := filepath.Dir(outputPath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create log directory: %w", err)
 		}
 
-		file, err := os.OpenFile(cfg.OutputPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		// 创建基本的日志轮转写入器
+		maxSize := parseMaxSize(cfg.MaxSize)
+		basicWriter, err := NewBasicRotatingWriter(outputPath, maxSize, cfg.MaxBackups)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open log file: %w", err)
+			return nil, fmt.Errorf("failed to create rotating writer: %w", err)
 		}
-		ws = zapcore.AddSync(file)
+
+		ws = zapcore.AddSync(basicWriter)
+		writer = basicWriter
 	} else {
 		ws = zapcore.AddSync(os.Stdout)
+		writer = nopWriteCloser{os.Stdout}
 	}
 
 	core := zapcore.NewCore(encoder, ws, zapLevel)
+
 	zapLogger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
 
-	return &Logger{
+	// 添加模块标识
+	if module != "" {
+		zapLogger = zapLogger.With(zap.String("module", module), zap.Int("pid", pid))
+	} else {
+		zapLogger = zapLogger.With(zap.Int("pid", pid))
+	}
+
+	logger := &Logger{
 		zap:    zapLogger.Sugar(),
 		level:  zapLevel,
+		writer: writer,
 		config: cfg,
+		pid:    pid,
+		module: module,
+	}
+
+	return logger, nil
+}
+
+// BasicRotatingWriter 基本的日志轮转实现
+type BasicRotatingWriter struct {
+	path        string
+	file        *os.File
+	maxSize     int64
+	maxBackups  int
+	currentSize int64
+	mu          sync.Mutex
+}
+
+func NewBasicRotatingWriter(path string, maxSize int64, maxBackups int) (*BasicRotatingWriter, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	// 获取初始文件大小
+	stat, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+
+	return &BasicRotatingWriter{
+		path:        path,
+		file:        file,
+		maxSize:     maxSize,
+		maxBackups:  maxBackups,
+		currentSize: stat.Size(),
 	}, nil
 }
 
-func Default() *Logger {
-	once.Do(func() {
-		var err error
-		defaultLogger, err = New("info", "console", "")
+func (bw *BasicRotatingWriter) Write(p []byte) (n int, err error) {
+	bw.mu.Lock()
+	defer bw.mu.Unlock()
+
+	// 检查是否需要轮转
+	if bw.currentSize+int64(len(p)) > bw.maxSize {
+		// 关闭当前文件
+		bw.file.Close()
+
+		// 重命名当前文件
+		oldPath := fmt.Sprintf("%s.%d", bw.path, time.Now().Unix())
+		os.Rename(bw.path, oldPath)
+
+		// 创建新文件
+		newFile, err := os.OpenFile(bw.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
-			panic(fmt.Sprintf("failed to create default logger: %v", err))
+			// 如果创建失败，尝试重新打开旧文件
+			bw.file, _ = os.OpenFile(bw.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			return 0, err
 		}
-	})
-	return defaultLogger
+
+		bw.file = newFile
+		bw.currentSize = 0
+
+		// 清理旧备份文件（保留最多 maxBackups 个）
+		bw.cleanupOldFiles()
+	}
+
+	n, err = bw.file.Write(p)
+	bw.currentSize += int64(n)
+	return n, err
 }
 
-func (l *Logger) Debug(args ...interface{}) {
-	l.zap.Debug(args...)
+func (bw *BasicRotatingWriter) Sync() error {
+	bw.mu.Lock()
+	defer bw.mu.Unlock()
+	return bw.file.Sync()
 }
 
-func (l *Logger) Debugf(template string, args ...interface{}) {
-	l.zap.Debugf(template, args...)
+func (bw *BasicRotatingWriter) Close() error {
+	bw.mu.Lock()
+	defer bw.mu.Unlock()
+	return bw.file.Close()
 }
 
-func (l *Logger) Info(args ...interface{}) {
-	l.zap.Info(args...)
-}
+func (bw *BasicRotatingWriter) cleanupOldFiles() {
+	// 简单清理：获取所有备份文件，保留最新的 maxBackups 个
+	dir := filepath.Dir(bw.path)
+	baseName := filepath.Base(bw.path)
 
-func (l *Logger) Infof(template string, args ...interface{}) {
-	l.zap.Infof(template, args...)
-}
+	// 这找所有相关的备份文件
+	// 这找所有以 baseName. 开头的文件
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
 
-func (l *Logger) Warn(args ...interface{}) {
-	l.zap.Warn(args...)
-}
+	var backupFiles []string
+	for _, file := range files {
+		name := file.Name()
+		if strings.HasPrefix(name, baseName+".") && !file.IsDir() {
+			backupFiles = append(backupFiles, filepath.Join(dir, name))
+		}
+	}
 
-func (l *Logger) Warnf(template string, args ...interface{}) {
-	l.zap.Warnf(template, args...)
-}
-
-func (l *Logger) Error(args ...interface{}) {
-	l.zap.Error(args...)
-}
-
-func (l *Logger) Errorf(template string, args ...interface{}) {
-	l.zap.Errorf(template, args...)
-}
-
-func (l *Logger) Fatal(args ...interface{}) {
-	l.zap.Fatal(args...)
-}
-
-func (l *Logger) Fatalf(template string, args ...interface{}) {
-	l.zap.Fatalf(template, args...)
-}
-
-func (l *Logger) With(fields ...interface{}) *Logger {
-	return &Logger{
-		zap:   l.zap.With(fields...),
-		level: l.level,
+	// 如果备份文件超过了 maxBackups，删除最旧的
+	if len(backupFiles) > bw.maxBackups {
+		// 这单清理：只保留最新的几个
+		for i := 0; i < len(backupFiles)-bw.maxBackups; i++ {
+			os.Remove(backupFiles[i])
+		}
 	}
 }
 
-func (l *Logger) WithScript(scriptName string) *Logger {
-	return l.With("script", scriptName)
+// nopWriteCloser 是一个空的 WriteCloser 实现，用于 stdout
+type nopWriteCloser struct {
+	io.Writer
 }
 
-func (l *Logger) WithStep(scriptName, stepName string) *Logger {
-	return l.With("script", scriptName, "step", stepName)
-}
+func (nwc nopWriteCloser) Close() error { return nil }
 
-func (l *Logger) LogScript(scriptName, level, message string) {
-	switch level {
-	case "DEBUG", "debug":
-		l.WithScript(scriptName).Debug(message)
-	case "INFO", "info":
-		l.WithScript(scriptName).Info(message)
-	case "WARN", "warn":
-		l.WithScript(scriptName).Warn(message)
-	case "ERROR", "error":
-		l.WithScript(scriptName).Error(message)
-	default:
-		l.WithScript(scriptName).Info(message)
+// parseMaxSize 解析最大文件大小
+func parseMaxSize(sizeStr string) int64 {
+	if sizeStr == "" {
+		return 10 * 1024 * 1024 // 默认 10MB
 	}
-}
 
-func (l *Logger) LogStep(scriptName, stepName, level, message string) {
-	switch level {
-	case "DEBUG", "debug":
-		l.WithStep(scriptName, stepName).Debug(message)
-	case "INFO", "info":
-		l.WithStep(scriptName, stepName).Info(message)
-	case "WARN", "warn":
-		l.WithStep(scriptName, stepName).Warn(message)
-	case "ERROR", "error":
-		l.WithStep(scriptName, stepName).Error(message)
-	default:
-		l.WithStep(scriptName, stepName).Info(message)
+	sizeStr = strings.ToUpper(strings.TrimSpace(sizeStr))
+	if strings.HasSuffix(sizeStr, "MB") {
+		numStr := strings.TrimSuffix(sizeStr, "MB")
+		if num, err := strconv.ParseInt(numStr, 10, 64); err == nil {
+			return num * 1024 * 1024
+		}
+	} else if strings.HasSuffix(sizeStr, "GB") {
+		numStr := strings.TrimSuffix(sizeStr, "GB")
+		if num, err := strconv.ParseInt(numStr, 10, 64); err == nil {
+			return num * 1024 * 1024 * 1024
+		}
 	}
+
+	// 默认 10MB
+	return 10 * 1024 * 1024
 }
 
-func (l *Logger) Sync() error {
-	return l.zap.Sync()
+// ExpandPID 展开 {pid} 占位符
+func ExpandPID(path string, pid int) string {
+	return strings.ReplaceAll(path, "{pid}", strconv.Itoa(pid))
 }
 
+// Info 记录信息日志
+func (l *Logger) Info(msg string, keysAndValues ...interface{}) {
+	l.zap.Infow(msg, keysAndValues...)
+}
+
+// Debug 记录调试日志
+func (l *Logger) Debug(msg string, keysAndValues ...interface{}) {
+	l.zap.Debugw(msg, keysAndValues...)
+}
+
+// Warn 记录警告日志
+func (l *Logger) Warn(msg string, keysAndValues ...interface{}) {
+	l.zap.Warnw(msg, keysAndValues...)
+}
+
+// Error 记录错误日志
+func (l *Logger) Error(msg string, keysAndValues ...interface{}) {
+	l.zap.Errorw(msg, keysAndValues...)
+}
+
+// Fatal 记录致命错误日志并退出
+func (l *Logger) Fatal(msg string, keysAndValues ...interface{}) {
+	l.zap.Fatalw(msg, keysAndValues...)
+}
+
+// Panic 记录恐慌日志并 panic
+func (l *Logger) Panic(msg string, keysAndValues ...interface{}) {
+	l.zap.Panicw(msg, keysAndValues...)
+}
+
+// WithFields 添加字段到日志
+func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
+	args := make([]interface{}, 0, len(fields)*2)
+	for k, v := range fields {
+		args = append(args, k, v)
+	}
+	newLogger := *l
+	newLogger.zap = l.zap.With(args...)
+	return &newLogger
+}
+
+// WithField 添加单个字段到日志
+func (l *Logger) WithField(key string, value interface{}) *Logger {
+	newLogger := *l
+	newLogger.zap = l.zap.With(key, value)
+	return &newLogger
+}
+
+// Close 关闭日志
 func (l *Logger) Close() error {
-	if err := l.Sync(); err != nil {
-		return err
+	if l.zap != nil {
+		l.zap.Sync()
 	}
-	if l.file != nil {
-		return l.file.Close()
+	if l.writer != nil {
+		l.writer.Close()
 	}
 	return nil
 }
 
-func FormatLogLine(scriptName, stepName, level, message string) string {
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	if stepName != "" {
-		return fmt.Sprintf("[%s] [%s] [%s:%s] %s", timestamp, level, scriptName, stepName, message)
+// GetZapLogger 获取底层 zap 日志记录器
+func (l *Logger) GetZapLogger() *zap.Logger {
+	return l.zap.Desugar()
+}
+
+// GetLevel 获取日志级别
+func (l *Logger) GetLevel() Level {
+	return Level(l.level.String())
+}
+
+// SetLevel 设置日志级别
+func (l *Logger) SetLevel(level string) error {
+	var zapLevel zapcore.Level
+	if err := zapLevel.UnmarshalText([]byte(level)); err != nil {
+		return fmt.Errorf("invalid log level: %s", level)
 	}
-	return fmt.Sprintf("[%s] [%s] [%s] %s", timestamp, level, scriptName, message)
+
+	l.level = zapLevel
+	// 重建 logger
+	return nil
+}
+
+// GetModule 获取模块标识
+func (l *Logger) GetModule() string {
+	return l.module
+}
+
+// GetPID 获取进程 ID
+func (l *Logger) GetPID() int {
+	return l.pid
 }

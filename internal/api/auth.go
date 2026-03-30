@@ -12,7 +12,7 @@ import (
 
 const (
 	// AdminToken 是开发者/管理员固定Token，可编辑SKILL
-	AdminToken = "Admin@DEFA123"
+	AdminToken = "Admin@DEAD123"
 	// CookieName Cookie名称
 	CookieName = "kb_token"
 	// CookieNameRole 角色Cookie名称
@@ -20,7 +20,7 @@ const (
 )
 
 type Auth struct {
-	token     string
+	token      string
 	cookieName string
 }
 
@@ -29,7 +29,7 @@ func NewAuth(token string) *Auth {
 		return nil
 	}
 	return &Auth{
-		token:     token,
+		token:      token,
 		cookieName: CookieName,
 	}
 }
@@ -82,14 +82,24 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-func (a *Auth) verifyToken(token string) bool {
-	// 验证开发者Token
-	if token == a.hashToken(AdminToken) {
+func (a *Auth) verifyToken(inputToken string) bool {
+	// 直接验证明文开发者Token
+	if inputToken == AdminToken {
 		return true
 	}
-	// 验证配置的随机Token
-	expected := a.hashToken(a.token)
-	return token == expected
+	// 直接验证明文配置Token
+	if inputToken == a.token {
+		return true
+	}
+	// 验证哈希过的Token（向后兼容）
+	if inputToken == a.hashToken(AdminToken) {
+		return true
+	}
+	if inputToken == a.hashToken(a.token) {
+		return true
+	}
+	// 都不匹配
+	return false
 }
 
 func (a *Auth) hashToken(token string) string {
@@ -116,7 +126,7 @@ func (a *Auth) setCookie(w http.ResponseWriter, token string) {
 	// 设置角色Cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:    CookieNameRole,
-		Value:    role,
+		Value:   role,
 		Path:    "/",
 		Expires: time.Now().Add(24 * time.Hour),
 	})

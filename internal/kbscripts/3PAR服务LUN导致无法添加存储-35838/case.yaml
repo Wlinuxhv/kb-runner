@@ -1,0 +1,27 @@
+name: 3PAR服务LUN导致无法添加存储
+language: bash
+category: storage
+tags:
+  - 3PAR
+  - storage
+  - iscsi
+description: 服务端透传服务LUN异常，没有透传数据LUN，而是服务LUN，导致前台添加存储界面为空
+timeout: 300s
+weight: 1.0
+params:
+  kb_id: "35838"
+  kb_source: "【HCI-中台】3PARdata服务端透传服务LUN 导致HCI 无法添加外置存储"
+
+# 得分配置
+scoring:
+  max_score: 100.0
+  steps:
+    - name: "查询存储相关告警"
+      weight: 0.3
+      expected_status: "success"
+    - name: "检查 iSCSI 认证状态"
+      weight: 0.3
+      expected_status: "success"
+    - name: "检查内核日志 SES 设备"
+      weight: 0.4
+      expected_status: "success"

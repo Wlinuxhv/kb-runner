@@ -19,6 +19,7 @@ import (
 	"kb-runnerx/internal/api"
 	"kb-runnerx/internal/cases"
 	"kb-runnerx/internal/executor"
+	"kb-runnerx/internal/kbscripts"
 	"kb-runnerx/internal/preprocessor"
 	"kb-runnerx/internal/processor"
 	"kb-runnerx/internal/scenario"
@@ -416,7 +417,19 @@ func runScripts(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	log, err := createLogger(cfg)
+	// 检查并解压 KB 脚本
+	if cfg.Scripts.EmbeddedKBEnabled {
+		kbScriptDir := cfg.Scripts.GetKBscriptDirectory()
+		if kbscripts.ShouldExtract(kbScriptDir) {
+			fmt.Printf("KB scripts not found, extracting to: %s\n", kbScriptDir)
+			if err := kbscripts.Extract(kbScriptDir); err != nil {
+				return fmt.Errorf("failed to extract KB scripts: %w", err)
+			}
+			fmt.Println("KB scripts extracted successfully")
+		}
+	}
+
+	log, err := createLoggerWithModule(cfg, "runner")
 	if err != nil {
 		return err
 	}
@@ -784,6 +797,10 @@ func loadConfig() (*config.Config, error) {
 }
 
 func createLogger(cfg *config.Config) (*logger.Logger, error) {
+	return createLoggerWithModule(cfg, "")
+}
+
+func createLoggerWithModule(cfg *config.Config, module string) (*logger.Logger, error) {
 	level := cfg.Logging.Level
 	if verbose {
 		level = "debug"
@@ -791,7 +808,24 @@ func createLogger(cfg *config.Config) (*logger.Logger, error) {
 	if quiet {
 		level = "error"
 	}
-	return logger.New(level, cfg.Logging.Format, cfg.Logging.Output.Path)
+
+	// 根据模块选择日志路径
+	logPath := cfg.Logging.Output.Path
+	if module != "" {
+		// 为不同模块使用不同的日志文件
+		logDir := filepath.Dir(logPath)
+		baseName := filepath.Base(logPath)
+		logPath = filepath.Join(logDir, fmt.Sprintf("%s-%s.log", strings.TrimSuffix(baseName, ".log"), module))
+	}
+
+	return logger.NewWithConfigAndModule(logger.Config{
+		Level:      level,
+		Format:     cfg.Logging.Format,
+		OutputPath: logPath,
+		MaxSize:    cfg.Logging.Output.MaxSize,
+		MaxBackups: cfg.Logging.Output.MaxBackups,
+		MaxAge:     cfg.Logging.Output.MaxAge,
+	}, module)
 }
 
 func registerAdapters(cfg *config.Config, engine *executor.Engine) {
@@ -831,11 +865,7 @@ func loadCases(cfg *config.Config, caseManager *cases.Manager) error {
 	}
 
 	// 加载kbscript目录下的cases
-	kbscriptDir := cfg.Scripts.KBscriptDirectory
-	if !filepath.IsAbs(kbscriptDir) {
-		execDir, _ := os.Getwd()
-		kbscriptDir = filepath.Join(execDir, kbscriptDir)
-	}
+	kbscriptDir := cfg.Scripts.GetKBscriptDirectory()
 	if _, err := os.Stat(kbscriptDir); !os.IsNotExist(err) {
 		if err := caseManager.LoadFromDirectory(kbscriptDir); err != nil {
 			return err
@@ -1315,7 +1345,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	log, err := createLogger(cfg)
+	// 检查并解压 KB 脚本
+	if cfg.Scripts.EmbeddedKBEnabled {
+		kbScriptDir := cfg.Scripts.GetKBscriptDirectory()
+		if kbscripts.ShouldExtract(kbScriptDir) {
+			fmt.Printf("KB scripts not found, extracting to: %s\n", kbScriptDir)
+			if err := kbscripts.Extract(kbScriptDir); err != nil {
+				return fmt.Errorf("failed to extract KB scripts: %w", err)
+			}
+			fmt.Println("KB scripts extracted successfully")
+		}
+	}
+
+	log, err := createLoggerWithModule(cfg, "serve")
 	if err != nil {
 		return err
 	}
